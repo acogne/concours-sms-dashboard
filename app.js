@@ -14,6 +14,10 @@ let currentRows = [];
 let currentMetric = 'Total Entries';
 let accessToken = null;
 let tokenClient = null;
+let hasStartedDashboard = false;
+
+const AUTO_REFRESH_START = { hour: 9, minute: 10 };
+const AUTO_REFRESH_END = { hour: 19, minute: 10 };
 
 const METRIC_LABELS = {
   'Total Entries': 'Entrées',
@@ -42,14 +46,22 @@ function initAuth() {
     scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
     callback: (response) => {
       if (response.error) {
+        if (hasStartedDashboard) return; // échec d'un renouvellement silencieux, on retente au prochain créneau
         showSigninError("Connexion Google refusée ou annulée. Réessaie.");
         return;
       }
       accessToken = response.access_token;
-      showSigninError('');
-      document.getElementById('signin-screen').style.display = 'none';
-      document.getElementById('app-shell').style.display = 'block';
-      startDashboard();
+      if (!hasStartedDashboard) {
+        hasStartedDashboard = true;
+        showSigninError('');
+        document.getElementById('signin-screen').style.display = 'none';
+        document.getElementById('app-shell').style.display = 'block';
+        startDashboard();
+        scheduleAutoRefresh();
+      } else {
+        const select = document.getElementById('contest-select');
+        if (select.value) loadContest(select.value);
+      }
     }
   });
 
@@ -57,6 +69,29 @@ function initAuth() {
     showSigninError('');
     tokenClient.requestAccessToken();
   });
+}
+
+// ---- Rafraîchissement automatique (toutes les heures de 9h10 à 19h10) ----
+
+function nextAutoRefreshSlot() {
+  const now = new Date();
+  for (let h = AUTO_REFRESH_START.hour; h <= AUTO_REFRESH_END.hour; h++) {
+    const slot = new Date(now);
+    slot.setHours(h, AUTO_REFRESH_START.minute, 0, 0);
+    if (slot.getTime() > now.getTime()) return slot;
+  }
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(AUTO_REFRESH_START.hour, AUTO_REFRESH_START.minute, 0, 0);
+  return tomorrow;
+}
+
+function scheduleAutoRefresh() {
+  const delay = nextAutoRefreshSlot().getTime() - Date.now();
+  setTimeout(() => {
+    tokenClient.requestAccessToken({ prompt: '' });
+    scheduleAutoRefresh();
+  }, delay);
 }
 
 // ---- Récupération des données via l'API Google Sheets ----
