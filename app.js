@@ -24,7 +24,8 @@ const AUTO_REFRESH_END = { hour: 19, minute: 10 };
 const METRIC_LABELS = {
   'Total Entries': 'Entrées',
   'Charged Unique Users': 'Participants',
-  'Net Revenue CHF': 'Revenu net (CHF)'
+  'Net Revenue CHF': 'Revenu net (CHF)',
+  'Stops Cumulés': 'Stops cumulés'
 };
 
 const WEEKDAY_COLUMNS = ['Entrées Lundi', 'Entrées Mardi', 'Entrées Mercredi', 'Entrées Jeudi', 'Entrées Vendredi', 'Entrées Samedi', 'Entrées Dimanche'];
