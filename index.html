@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Concours SMS — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #12151b;
+    --surface: #1a1e27;
+    --surface-2: #1f2430;
+    --border: #2a2f3a;
+    --text: #e7e9ed;
+    --text-muted: #868c99;
+    --accent: #f2a93c;
+    --accent-2: #45b8ac;
+    --positive: #6fcf97;
+    --negative: #e8735c;
+    --radius: 4px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .display {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 16px 28px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+
+  .on-air {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+  }
+  .on-air .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .on-air .dot { animation: none; }
+  }
+
+  .station {
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  select#contest-select {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 12px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    margin-left: auto;
+    cursor: pointer;
+  }
+  select#contest-select:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  #last-update {
+    color: var(--text-muted);
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  main {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 28px;
+  }
+
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 28px;
+  }
+  .kpi {
+    background: var(--surface);
+    padding: 20px 22px;
+  }
+  .kpi .label {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+  .kpi .value {
+    font-size: 34px;
+    line-height: 1;
+  }
+  .kpi .delta {
+    font-size: 13px;
+    margin-top: 8px;
+    color: var(--text-muted);
+  }
+  .kpi .delta.positive { color: var(--positive); }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 20px;
+  }
+  .panel-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .panel-header h2 {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 600;
+    font-size: 17px;
+    margin: 0;
+    letter-spacing: 0.01em;
+  }
+  .metric-toggle {
+    display: flex;
+    gap: 4px;
+  }
+  .metric-toggle button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    padding: 5px 10px;
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+  .metric-toggle button.active {
+    color: var(--bg);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .metric-toggle button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .panel-body { padding: 20px; }
+
+  .secondary-grid {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr 1fr;
+    gap: 20px;
+  }
+
+  .bar-row {
+    display: grid;
+    grid-template-columns: 90px 1fr 56px;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    font-size: 13px;
+  }
+  .bar-row:last-child { margin-bottom: 0; }
+  .bar-track {
+    height: 8px;
+    background: var(--surface-2);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .bar-fill { height: 100%; border-radius: 2px; }
+  .bar-value { text-align: right; color: var(--text-muted); }
+
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-row .stat-label { font-size: 13px; color: var(--text-muted); }
+  .stat-row .stat-value { font-size: 22px; }
+
+  footer {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 28px 28px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  #status-message {
+    max-width: 1180px;
+    margin: 40px auto;
+    padding: 0 28px;
+    color: var(--text-muted);
+    font-size: 14px;
+    display: none;
+  }
+
+  @media (max-width: 760px) {
+    .kpi-row { grid-template-columns: repeat(2, 1fr); }
+    .secondary-grid { grid-template-columns: 1fr; }
+    header { gap: 12px; }
+    select#contest-select { margin-left: 0; width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="on-air"><span class="dot"></span>ON AIR</div>
+  <span class="station" id="station-name">One FM</span>
+  <select id="contest-select" aria-label="Choisir un concours"></select>
+  <span id="last-update"></span>
+</header>
+
+<main id="dashboard-content" style="display:none;">
+
+  <div class="kpi-row">
+    <div class="kpi">
+      <div class="label">Participants uniques</div>
+      <div class="value display" id="kpi-users">—</div>
+      <div class="delta" id="kpi-users-delta"></div>
+    </div>
+    <div class="kpi">
+      <div class="label">Entrées totales</div>
+      <div class="value display" id="kpi-entries">—</div>
+      <div class="delta" id="kpi-entries-delta"></div>
+    </div>
+    <div class="kpi">
+      <div class="label">Revenu net</div>
+      <div class="value display" id="kpi-revenue">—</div>
+      <div class="delta" id="kpi-revenue-delta"></div>
+    </div>
+    <div class="kpi">
+      <div class="label">Coût SMS sortants</div>
+      <div class="value display" id="kpi-cost">—</div>
+      <div class="delta" id="kpi-cost-delta"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Évolution</h2>
+      <div class="metric-toggle" id="metric-toggle">
+        <button data-metric="Total Entries" class="active">Entrées</button>
+        <button data-metric="Charged Unique Users">Participants</button>
+        <button data-metric="Net Revenue CHF">Revenu net</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <canvas id="evolution-chart" height="90"></canvas>
+    </div>
+  </div>
+
+  <div class="secondary-grid">
+    <div class="panel">
+      <div class="panel-header"><h2>Répartition réseau</h2></div>
+      <div class="panel-body" id="network-split"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><h2>SMS sortants</h2></div>
+      <div class="panel-body">
+        <div class="stat-row">
+          <span class="stat-label">Livrés</span>
+          <span class="stat-value display" id="stat-delivered">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Coût total</span>
+          <span class="stat-value display" id="stat-bulkcost">—</span>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><h2>Plafond &amp; erreurs</h2></div>
+      <div class="panel-body">
+        <div class="stat-row">
+          <span class="stat-label">Plafond atteint (MSISDN)</span>
+          <span class="stat-value display" id="stat-cap">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Erreurs mot-clé</span>
+          <span class="stat-value display" id="stat-errors">—</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<div id="status-message"></div>
+
+<footer>Mediaone Group — mise à jour automatique toutes les heures via Make.com</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
