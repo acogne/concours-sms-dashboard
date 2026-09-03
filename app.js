@@ -195,22 +195,22 @@ function renderDelta(elId, latestVal, prevVal, formatter) {
 
 function renderKpis(latest, previous) {
   const users = cleanNumber(latest['Charged Unique Users']);
+  const chargedEntries = cleanNumber(latest['Charged Entries']);
   const entries = cleanNumber(latest['Total Entries']);
   const revenue = cleanNumber(latest['Net Revenue CHF']);
-  const cost = cleanNumber(latest['Bulk Cost CHF']);
 
   document.getElementById('kpi-users').textContent = NUM_FMT.format(users);
+  document.getElementById('kpi-charged-entries').textContent = NUM_FMT.format(chargedEntries);
   document.getElementById('kpi-entries').textContent = NUM_FMT.format(entries);
   document.getElementById('kpi-revenue').textContent = CHF_FMT.format(revenue);
-  document.getElementById('kpi-cost').textContent = CHF_FMT.format(cost);
 
   if (previous) {
     renderDelta('kpi-users-delta', users, cleanNumber(previous['Charged Unique Users']), n => NUM_FMT.format(n));
+    renderDelta('kpi-charged-entries-delta', chargedEntries, cleanNumber(previous['Charged Entries']), n => NUM_FMT.format(n));
     renderDelta('kpi-entries-delta', entries, cleanNumber(previous['Total Entries']), n => NUM_FMT.format(n));
     renderDelta('kpi-revenue-delta', revenue, cleanNumber(previous['Net Revenue CHF']), n => CHF_FMT.format(n));
-    renderDelta('kpi-cost-delta', cost, cleanNumber(previous['Bulk Cost CHF']), n => CHF_FMT.format(n));
   } else {
-    ['kpi-users-delta', 'kpi-entries-delta', 'kpi-revenue-delta', 'kpi-cost-delta'].forEach(id => {
+    ['kpi-users-delta', 'kpi-charged-entries-delta', 'kpi-entries-delta', 'kpi-revenue-delta'].forEach(id => {
       document.getElementById(id).textContent = '';
     });
   }
