@@ -180,8 +180,9 @@ function renderDelta(elId, latestVal, prevVal, formatter) {
   const el = document.getElementById(elId);
   if (prevVal === null || prevVal === undefined) { el.textContent = ''; return; }
   const diff = latestVal - prevVal;
-  if (diff === 0) { el.textContent = 'stable / h'; el.classList.remove('positive'); return; }
-  el.textContent = `${diff > 0 ? '▲ +' : '▼ '}${formatter(Math.abs(diff))} / h`;
+  const formattedAbs = formatter(Math.abs(diff));
+  if (!/[1-9]/.test(formattedAbs)) { el.textContent = 'stable / h'; el.classList.remove('positive'); return; }
+  el.textContent = `${diff > 0 ? '▲ +' : '▼ '}${formattedAbs} / h`;
   el.classList.toggle('positive', diff > 0);
 }
 
