@@ -10,6 +10,8 @@ const NUM_FMT = new Intl.NumberFormat('fr-CH');
 const CHF_FMT = new Intl.NumberFormat('fr-CH', { style: 'currency', currency: 'CHF', maximumFractionDigits: 0 });
 
 let evolutionChart = null;
+let loyaltyChart = null;
+let weekdayChart = null;
 let currentRows = [];
 let currentMetric = 'Total Entries';
 let accessToken = null;
@@ -24,6 +26,9 @@ const METRIC_LABELS = {
   'Charged Unique Users': 'Participants',
   'Net Revenue CHF': 'Revenu net (CHF)'
 };
+
+const WEEKDAY_COLUMNS = ['Entrées Lundi', 'Entrées Mardi', 'Entrées Mercredi', 'Entrées Jeudi', 'Entrées Vendredi', 'Entrées Samedi', 'Entrées Dimanche'];
+const WEEKDAY_LABELS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 
 function cleanNumber(raw) {
   if (typeof raw !== 'string') return Number(raw) || 0;
@@ -174,6 +179,8 @@ function renderDashboard(rows) {
   renderNetworkSplit(latest);
   renderStats(latest);
   renderEvolutionChart(rows, currentMetric);
+  renderLoyalty(latest);
+  renderWeekdayVolume(latest);
 }
 
 function renderDelta(elId, latestVal, prevVal, formatter) {
@@ -280,6 +287,82 @@ function renderEvolutionChart(rows, metric) {
       scales: {
         x: {
           ticks: { color: '#868c99', maxTicksLimit: 8, font: { family: 'Inter', size: 11 } },
+          grid: { color: '#2a2f3a' }
+        },
+        y: {
+          ticks: { color: '#868c99', font: { family: 'Inter', size: 11 } },
+          grid: { color: '#2a2f3a' }
+        }
+      }
+    }
+  });
+}
+
+function renderLoyalty(latest) {
+  const once = cleanNumber(latest['Participants 1x']);
+  const multi = cleanNumber(latest['Participants 2x+']);
+  const total = once + multi || 1;
+
+  const segments = [
+    { label: '1 participation', value: once, color: COLORS.accent },
+    { label: '2+ participations', value: multi, color: COLORS.accent2 }
+  ];
+
+  const ctx = document.getElementById('loyalty-chart').getContext('2d');
+  if (loyaltyChart) loyaltyChart.destroy();
+
+  loyaltyChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: segments.map(s => s.label),
+      datasets: [{
+        data: segments.map(s => s.value),
+        backgroundColor: segments.map(s => s.color),
+        borderWidth: 0
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } }
+    }
+  });
+
+  const legend = document.getElementById('loyalty-legend');
+  legend.innerHTML = segments.map(s => {
+    const pct = (s.value / total) * 100;
+    return `
+      <div class="legend-row">
+        <span class="legend-dot" style="background:${s.color};"></span>
+        <span>${s.label}</span>
+        <span class="legend-value">${NUM_FMT.format(s.value)} (${pct.toFixed(0)}%)</span>
+      </div>`;
+  }).join('');
+}
+
+function renderWeekdayVolume(latest) {
+  const data = WEEKDAY_COLUMNS.map(col => cleanNumber(latest[col]));
+
+  const ctx = document.getElementById('weekday-chart').getContext('2d');
+  if (weekdayChart) weekdayChart.destroy();
+
+  weekdayChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: WEEKDAY_LABELS,
+      datasets: [{
+        data,
+        backgroundColor: COLORS.accent,
+        borderRadius: 3
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: {
+          ticks: { color: '#868c99', font: { family: 'Inter', size: 11 } },
           grid: { color: '#2a2f3a' }
         },
         y: {

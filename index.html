@@ -187,6 +187,38 @@
     gap: 20px;
   }
 
+  .two-col-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  .loyalty-body {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+  .loyalty-chart {
+    width: 140px;
+    flex-shrink: 0;
+  }
+  .loyalty-legend { flex: 1; }
+  .loyalty-legend .legend-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    margin-bottom: 14px;
+  }
+  .loyalty-legend .legend-row:last-child { margin-bottom: 0; }
+  .loyalty-legend .legend-dot {
+    width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0;
+  }
+  .loyalty-legend .legend-value {
+    margin-left: auto;
+    color: var(--text-muted);
+  }
+
   .bar-row {
     display: grid;
     grid-template-columns: 90px 1fr 56px;
@@ -300,6 +332,7 @@
   @media (max-width: 760px) {
     .kpi-row { grid-template-columns: repeat(2, 1fr); }
     .secondary-grid { grid-template-columns: 1fr; }
+    .two-col-grid { grid-template-columns: 1fr; }
     header { gap: 12px; }
     select#contest-select { margin-left: 0; width: 100%; }
   }
@@ -395,6 +428,22 @@
           <span class="stat-label">Erreurs mot-clé</span>
           <span class="stat-value display" id="stat-errors">—</span>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="two-col-grid">
+    <div class="panel">
+      <div class="panel-header"><h2>Fidélité participants</h2></div>
+      <div class="panel-body loyalty-body">
+        <div class="loyalty-chart"><canvas id="loyalty-chart" height="140"></canvas></div>
+        <div class="loyalty-legend" id="loyalty-legend"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><h2>Volume par jour de la semaine</h2></div>
+      <div class="panel-body">
+        <canvas id="weekday-chart" height="140"></canvas>
       </div>
     </div>
   </div>
