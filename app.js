@@ -30,22 +30,31 @@ function cleanNumber(raw) {
 
 // ---- Authentification Google ----
 
+function showSigninError(message) {
+  const el = document.getElementById('signin-error');
+  el.textContent = message;
+  el.style.display = message ? 'block' : 'none';
+}
+
 function initAuth() {
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: DASHBOARD_CONFIG.googleClientId,
     scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
     callback: (response) => {
       if (response.error) {
-        showStatus("Connexion Google refusée ou annulée. Clique sur \"Se connecter avec Google\" pour réessayer.");
+        showSigninError("Connexion Google refusée ou annulée. Réessaie.");
         return;
       }
       accessToken = response.access_token;
+      showSigninError('');
       document.getElementById('signin-screen').style.display = 'none';
+      document.getElementById('app-shell').style.display = 'block';
       startDashboard();
     }
   });
 
   document.getElementById('signin-button').addEventListener('click', () => {
+    showSigninError('');
     tokenClient.requestAccessToken();
   });
 }
