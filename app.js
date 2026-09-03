@@ -102,7 +102,7 @@ function scheduleAutoRefresh() {
 // ---- Récupération des données via l'API Google Sheets ----
 
 function sheetApiUrl(sheetTab) {
-  const range = encodeURIComponent(`${sheetTab}!A:O`);
+  const range = encodeURIComponent(`${sheetTab}!A:Z`);
   return `https://sheets.googleapis.com/v4/spreadsheets/${DASHBOARD_CONFIG.sheetId}/values/${range}`;
 }
 
