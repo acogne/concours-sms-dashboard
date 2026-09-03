@@ -250,6 +250,13 @@
   <span id="last-update"></span>
 </header>
 
+<div id="signin-screen" style="max-width:1180px;margin:60px auto;padding:0 28px;">
+  <p style="color:var(--text-muted);margin-bottom:16px;">Connecte-toi avec ton compte Google pour charger les données du concours.</p>
+  <button id="signin-button" style="background:var(--accent);color:var(--bg);border:none;border-radius:var(--radius);padding:10px 18px;font-family:'Inter',sans-serif;font-weight:600;font-size:14px;cursor:pointer;">
+    Se connecter avec Google
+  </button>
+</div>
+
 <main id="dashboard-content" style="display:none;">
 
   <div class="kpi-row">
@@ -328,7 +335,7 @@
 
 <footer>Mediaone Group — mise à jour automatique toutes les heures via Make.com</footer>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://accounts.google.com/gsi/client"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 <script src="config.js"></script>
 <script src="app.js"></script>

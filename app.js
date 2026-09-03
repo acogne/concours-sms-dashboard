@@ -12,6 +12,8 @@ const CHF_FMT = new Intl.NumberFormat('fr-CH', { style: 'currency', currency: 'C
 let evolutionChart = null;
 let currentRows = [];
 let currentMetric = 'Total Entries';
+let accessToken = null;
+let tokenClient = null;
 
 const METRIC_LABELS = {
   'Total Entries': 'Entrées',
@@ -26,9 +28,33 @@ function cleanNumber(raw) {
   return isNaN(n) ? 0 : n;
 }
 
-function csvUrlFor(sheetTab) {
-  const encodedTab = encodeURIComponent(sheetTab);
-  return `https://docs.google.com/spreadsheets/d/${DASHBOARD_CONFIG.sheetId}/gviz/tq?tqx=out:csv&sheet=${encodedTab}`;
+// ---- Authentification Google ----
+
+function initAuth() {
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: DASHBOARD_CONFIG.googleClientId,
+    scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
+    callback: (response) => {
+      if (response.error) {
+        showStatus("Connexion Google refusée ou annulée. Clique sur \"Se connecter avec Google\" pour réessayer.");
+        return;
+      }
+      accessToken = response.access_token;
+      document.getElementById('signin-screen').style.display = 'none';
+      startDashboard();
+    }
+  });
+
+  document.getElementById('signin-button').addEventListener('click', () => {
+    tokenClient.requestAccessToken();
+  });
+}
+
+// ---- Récupération des données via l'API Google Sheets ----
+
+function sheetApiUrl(sheetTab) {
+  const range = encodeURIComponent(`${sheetTab}!A:O`);
+  return `https://sheets.googleapis.com/v4/spreadsheets/${DASHBOARD_CONFIG.sheetId}/values/${range}`;
 }
 
 function populateContestSelect() {
@@ -53,30 +79,47 @@ function showStatus(message) {
 
 function loadContest(contestId) {
   const contest = DASHBOARD_CONFIG.contests.find(c => c.id === contestId);
-  if (!contest) return;
+  if (!contest || !accessToken) return;
 
   document.getElementById('station-name').textContent = contest.station || '';
   showStatus('Chargement des données…');
 
-  Papa.parse(csvUrlFor(contest.sheetTab), {
-    download: true,
-    header: true,
-    skipEmptyLines: true,
-    complete: (results) => {
-      const rows = results.data.filter(r => r.Timestamp);
-      if (rows.length === 0) {
-        showStatus(`Aucune donnée trouvée dans l'onglet "${contest.sheetTab}". Vérifie que le nom de l'onglet dans config.js correspond exactement, et que le Sheet est partagé en "Toute personne disposant du lien".`);
+  fetch(sheetApiUrl(contest.sheetTab), {
+    headers: { 'Authorization': `Bearer ${accessToken}` }
+  })
+    .then(res => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    })
+    .then(json => {
+      const values = json.values || [];
+      if (values.length < 2) {
+        showStatus(`Aucune donnée trouvée dans l'onglet "${contest.sheetTab}". Vérifie que le nom de l'onglet dans config.js correspond exactement.`);
         return;
       }
+      const header = values[0];
+      const rows = values.slice(1).map(row => {
+        const obj = {};
+        header.forEach((key, i) => { obj[key] = row[i]; });
+        return obj;
+      }).filter(r => r.Timestamp);
+
       currentRows = rows;
       showStatus('');
       renderDashboard(rows);
-    },
-    error: () => {
-      showStatus("Impossible de charger les données. Vérifie que le Google Sheet est bien partagé en \"Toute personne disposant du lien peut consulter\".");
-    }
-  });
+    })
+    .catch(err => {
+      if (err.message && err.message.includes('401')) {
+        showStatus('Session Google expirée. Recharge la page et reconnecte-toi.');
+      } else if (err.message && err.message.includes('403')) {
+        showStatus("Ton compte Google n'a pas accès à ce Sheet. Vérifie que tu es connecté avec le bon compte et que tu as au moins un accès lecteur sur le document.");
+      } else {
+        showStatus("Impossible de charger les données (" + err.message + ").");
+      }
+    });
 }
+
+// ---- Rendu ----
 
 function renderDashboard(rows) {
   const latest = rows[rows.length - 1];
@@ -91,14 +134,12 @@ function renderDashboard(rows) {
 
 function renderDelta(elId, latestVal, prevVal, formatter) {
   const el = document.getElementById(elId);
-  if (!previousExists(prevVal)) { el.textContent = ''; return; }
+  if (prevVal === null || prevVal === undefined) { el.textContent = ''; return; }
   const diff = latestVal - prevVal;
   if (diff === 0) { el.textContent = 'stable / h'; el.classList.remove('positive'); return; }
   el.textContent = `${diff > 0 ? '▲ +' : '▼ '}${formatter(Math.abs(diff))} / h`;
   el.classList.toggle('positive', diff > 0);
 }
-
-function previousExists(v) { return v !== null && v !== undefined; }
 
 function renderKpis(latest, previous) {
   const users = cleanNumber(latest['Charged Unique Users']);
@@ -217,12 +258,15 @@ function setupMetricToggle() {
   });
 }
 
-document.getElementById('evolution-chart').parentElement; // ensure canvas exists before chart init
-populateContestSelect();
-setupMetricToggle();
-if (DASHBOARD_CONFIG.contests.length > 0) {
-  document.getElementById('contest-select').value = DASHBOARD_CONFIG.contests[0].id;
-  loadContest(DASHBOARD_CONFIG.contests[0].id);
-} else {
-  showStatus('Aucun concours configuré. Ajoute-en un dans config.js.');
+function startDashboard() {
+  populateContestSelect();
+  setupMetricToggle();
+  if (DASHBOARD_CONFIG.contests.length > 0) {
+    document.getElementById('contest-select').value = DASHBOARD_CONFIG.contests[0].id;
+    loadContest(DASHBOARD_CONFIG.contests[0].id);
+  } else {
+    showStatus('Aucun concours configuré. Ajoute-en un dans config.js.');
+  }
 }
+
+initAuth();
