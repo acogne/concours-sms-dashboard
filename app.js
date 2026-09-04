@@ -142,8 +142,13 @@ function setupFullscreenToggle() {
     btn.setAttribute('aria-label', label);
     // Le conteneur change de taille en dehors d'un resize de fenêtre classique :
     // on force les charts à se redimensionner plutôt que de compter sur leur
-    // ResizeObserver, qui peut rater la transition plein écran.
-    [evolutionChart, loyaltyChart, weekdayChart].forEach(chart => chart && chart.resize());
+    // ResizeObserver, qui peut rater la transition plein écran. L'animation
+    // d'entrée/sortie du plein écran n'est pas terminée au moment où cet
+    // événement se déclenche, donc on redimensionne aussi une fois qu'elle
+    // a eu le temps de se terminer.
+    const resizeCharts = () => [evolutionChart, loyaltyChart, weekdayChart].forEach(chart => chart && chart.resize());
+    resizeCharts();
+    setTimeout(resizeCharts, 300);
   });
 }
 
