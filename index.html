@@ -125,12 +125,17 @@
   /* Plein écran : tout doit tenir sur un seul écran sans scroll, donc on
      transforme header/main/footer en colonne flex qui occupe exactement
      100vh, et chaque bloc de contenu se répartit l'espace restant plutôt
-     que d'avoir des hauteurs fixes qui débordent dès qu'on ajoute un panneau. */
-  body.is-fullscreen {
+     que d'avoir des hauteurs fixes qui débordent dès qu'on ajoute un panneau.
+     header/main/footer sont en fait tous les trois enfants de #app-shell
+     (pas directement de body), donc c'est #app-shell qu'il faut transformer
+     en colonne flex — le !important est nécessaire pour passer devant le
+     display:block posé en inline-style par le JS une fois connecté. */
+  body.is-fullscreen { overflow: hidden; }
+  body.is-fullscreen #app-shell {
+    display: flex !important;
+    flex-direction: column;
     height: 100vh;
     overflow: hidden;
-    display: flex;
-    flex-direction: column;
   }
   body.is-fullscreen header,
   body.is-fullscreen main,
