@@ -183,6 +183,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     margin-bottom: 20px;
+    min-width: 0;
   }
   .panel-header {
     padding: 16px 20px;
@@ -222,7 +223,13 @@
     outline-offset: 2px;
   }
 
-  .panel-body { padding: 20px; }
+  .panel-body { padding: 20px; min-width: 0; }
+
+  canvas { display: block; max-width: 100%; }
+
+  #evolution-panel-body { height: 260px; }
+  #weekday-panel-body { height: 200px; }
+  .loyalty-chart { height: 140px; }
 
   .secondary-grid {
     display: grid;
