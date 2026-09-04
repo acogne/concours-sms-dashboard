@@ -222,7 +222,7 @@ function setupFullscreenToggle() {
 // ---- Récupération des données via l'API Google Sheets ----
 
 function sheetApiUrl(sheetTab) {
-  const range = encodeURIComponent(`${sheetTab}!A:Z`);
+  const range = encodeURIComponent(`${sheetTab}!A:AZ`);
   return `https://sheets.googleapis.com/v4/spreadsheets/${DASHBOARD_CONFIG.sheetId}/values/${range}`;
 }
 
