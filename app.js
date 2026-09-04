@@ -53,7 +53,10 @@ function initAuth() {
     scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
     callback: (response) => {
       if (response.error) {
-        if (hasStartedDashboard) return; // échec d'un renouvellement silencieux, on retente au prochain créneau
+        if (hasStartedDashboard) {
+          showStatus('Session Google expirée. Recharge la page et reconnecte-toi.');
+          return;
+        }
         showSigninError("Connexion Google refusée ou annulée. Réessaie.");
         return;
       }
@@ -104,7 +107,8 @@ function scheduleAutoRefresh() {
 }
 
 function refreshData() {
-  tokenClient.requestAccessToken({ prompt: '' });
+  const select = document.getElementById('contest-select');
+  if (select.value) loadContest(select.value);
 }
 
 // ---- Bouton de rafraîchissement manuel ----
@@ -177,10 +181,16 @@ function loadContest(contestId) {
     headers: { 'Authorization': `Bearer ${accessToken}` }
   })
     .then(res => {
+      if (res.status === 401) {
+        // Token expiré : on le renouvelle en silence, ce qui redéclenchera loadContest().
+        tokenClient.requestAccessToken({ prompt: '' });
+        return null;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
     })
     .then(json => {
+      if (!json) return;
       const values = json.values || [];
       if (values.length < 2) {
         showStatus(`Aucune donnée trouvée dans l'onglet "${contest.sheetTab}". Vérifie que le nom de l'onglet dans config.js correspond exactement.`);
@@ -198,9 +208,7 @@ function loadContest(contestId) {
       renderDashboard(rows);
     })
     .catch(err => {
-      if (err.message && err.message.includes('401')) {
-        showStatus('Session Google expirée. Recharge la page et reconnecte-toi.');
-      } else if (err.message && err.message.includes('403')) {
+      if (err.message && err.message.includes('403')) {
         showStatus("Ton compte Google n'a pas accès à ce Sheet. Vérifie que tu es connecté avec le bon compte et que tu as au moins un accès lecteur sur le document.");
       } else {
         showStatus("Impossible de charger les données (" + err.message + ").");
