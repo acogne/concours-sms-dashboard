@@ -139,6 +139,7 @@
   body.is-fullscreen .stat-row .stat-value { font-size: 28px; }
   body.is-fullscreen #evolution-panel-body { height: 340px; }
   body.is-fullscreen #weekday-panel-body { height: 260px; }
+  body.is-fullscreen #hourly-panel-body { height: 260px; }
   body.is-fullscreen .loyalty-chart { width: 200px; height: 200px; }
   body.is-fullscreen .loyalty-legend .legend-row { font-size: 15px; }
 
@@ -229,6 +230,7 @@
 
   #evolution-panel-body { height: 260px; }
   #weekday-panel-body { height: 200px; }
+  #hourly-panel-body { height: 200px; }
   .loyalty-chart { height: 140px; }
 
   .secondary-grid {
@@ -504,6 +506,13 @@
       <div class="panel-body" id="weekday-panel-body">
         <canvas id="weekday-chart" height="140"></canvas>
       </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Volume par heure de la journée</h2></div>
+    <div class="panel-body" id="hourly-panel-body">
+      <canvas id="hourly-chart" height="140"></canvas>
     </div>
   </div>
 

@@ -12,6 +12,7 @@ const CHF_FMT = new Intl.NumberFormat('fr-CH', { style: 'currency', currency: 'C
 let evolutionChart = null;
 let loyaltyChart = null;
 let weekdayChart = null;
+let hourlyChart = null;
 let currentRows = [];
 let currentMetric = 'Total Entries';
 let accessToken = null;
@@ -34,6 +35,9 @@ const METRIC_LABELS = {
 
 const WEEKDAY_COLUMNS = ['Entrées Lundi', 'Entrées Mardi', 'Entrées Mercredi', 'Entrées Jeudi', 'Entrées Vendredi', 'Entrées Samedi', 'Entrées Dimanche'];
 const WEEKDAY_LABELS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
+
+const HOUR_LABELS = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0') + 'h');
+const HOUR_COLUMNS = HOUR_LABELS.map(h => `Entrées ${h}`);
 
 function cleanNumber(raw) {
   if (typeof raw !== 'string') return Number(raw) || 0;
@@ -209,7 +213,7 @@ function setupFullscreenToggle() {
     // d'entrée/sortie du plein écran n'est pas terminée au moment où cet
     // événement se déclenche, donc on redimensionne aussi une fois qu'elle
     // a eu le temps de se terminer.
-    const resizeCharts = () => [evolutionChart, loyaltyChart, weekdayChart].forEach(chart => chart && chart.resize());
+    const resizeCharts = () => [evolutionChart, loyaltyChart, weekdayChart, hourlyChart].forEach(chart => chart && chart.resize());
     resizeCharts();
     setTimeout(resizeCharts, 300);
   });
@@ -309,6 +313,7 @@ function renderDashboard(rows) {
   renderEvolutionChart(rows, currentMetric);
   renderLoyalty(latest);
   renderWeekdayVolume(latest);
+  renderHourlyVolume(latest);
 }
 
 function renderDelta(elId, latestVal, prevVal, formatter) {
@@ -469,16 +474,14 @@ function renderLoyalty(latest) {
   }).join('');
 }
 
-function renderWeekdayVolume(latest) {
-  const data = WEEKDAY_COLUMNS.map(col => cleanNumber(latest[col]));
+function renderBarChart(canvasId, existingChart, labels, data) {
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  if (existingChart) existingChart.destroy();
 
-  const ctx = document.getElementById('weekday-chart').getContext('2d');
-  if (weekdayChart) weekdayChart.destroy();
-
-  weekdayChart = new Chart(ctx, {
+  return new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: WEEKDAY_LABELS,
+      labels,
       datasets: [{
         data,
         backgroundColor: COLORS.accent,
@@ -501,6 +504,16 @@ function renderWeekdayVolume(latest) {
       }
     }
   });
+}
+
+function renderWeekdayVolume(latest) {
+  const data = WEEKDAY_COLUMNS.map(col => cleanNumber(latest[col]));
+  weekdayChart = renderBarChart('weekday-chart', weekdayChart, WEEKDAY_LABELS, data);
+}
+
+function renderHourlyVolume(latest) {
+  const data = HOUR_COLUMNS.map(col => cleanNumber(latest[col]));
+  hourlyChart = renderBarChart('hourly-chart', hourlyChart, HOUR_LABELS, data);
 }
 
 function setupMetricToggle() {
