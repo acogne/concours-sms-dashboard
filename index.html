@@ -99,6 +99,29 @@
     white-space: nowrap;
   }
 
+  .header-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .icon-btn:hover { color: var(--text); border-color: var(--text-muted); }
+  .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .icon-btn svg { width: 16px; height: 16px; }
+  .icon-btn.is-spinning svg { animation: spin 0.7s linear; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
   main {
     max-width: 1180px;
     margin: 0 auto;
@@ -358,6 +381,14 @@
   <span class="station" id="station-name"></span>
   <select id="contest-select" aria-label="Choisir un concours"></select>
   <span id="last-update"></span>
+  <div class="header-actions">
+    <button id="refresh-button" class="icon-btn" type="button" title="Rafraîchir les données" aria-label="Rafraîchir les données">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+    </button>
+    <button id="fullscreen-button" class="icon-btn" type="button" title="Plein écran" aria-label="Plein écran">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+    </button>
+  </div>
 </header>
 
 <main id="dashboard-content">

@@ -18,8 +18,9 @@ let accessToken = null;
 let tokenClient = null;
 let hasStartedDashboard = false;
 
-const AUTO_REFRESH_START = { hour: 9, minute: 10 };
-const AUTO_REFRESH_END = { hour: 19, minute: 10 };
+const AUTO_REFRESH_START = { hour: 9, minute: 0 };
+const AUTO_REFRESH_END = { hour: 20, minute: 0 };
+const AUTO_REFRESH_STEP_MINUTES = 30;
 
 const METRIC_LABELS = {
   'Total Entries': 'Entrées',
@@ -77,13 +78,15 @@ function initAuth() {
   });
 }
 
-// ---- Rafraîchissement automatique (toutes les heures de 9h10 à 19h10) ----
+// ---- Rafraîchissement automatique (toutes les 30' de 9h00 à 20h00) ----
 
 function nextAutoRefreshSlot() {
   const now = new Date();
-  for (let h = AUTO_REFRESH_START.hour; h <= AUTO_REFRESH_END.hour; h++) {
+  const startTotalMin = AUTO_REFRESH_START.hour * 60 + AUTO_REFRESH_START.minute;
+  const endTotalMin = AUTO_REFRESH_END.hour * 60 + AUTO_REFRESH_END.minute;
+  for (let mins = startTotalMin; mins <= endTotalMin; mins += AUTO_REFRESH_STEP_MINUTES) {
     const slot = new Date(now);
-    slot.setHours(h, AUTO_REFRESH_START.minute, 0, 0);
+    slot.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
     if (slot.getTime() > now.getTime()) return slot;
   }
   const tomorrow = new Date(now);
@@ -95,9 +98,43 @@ function nextAutoRefreshSlot() {
 function scheduleAutoRefresh() {
   const delay = nextAutoRefreshSlot().getTime() - Date.now();
   setTimeout(() => {
-    tokenClient.requestAccessToken({ prompt: '' });
+    refreshData();
     scheduleAutoRefresh();
   }, delay);
+}
+
+function refreshData() {
+  tokenClient.requestAccessToken({ prompt: '' });
+}
+
+// ---- Bouton de rafraîchissement manuel ----
+
+function setupManualRefresh() {
+  const btn = document.getElementById('refresh-button');
+  btn.addEventListener('click', () => {
+    btn.classList.remove('is-spinning');
+    void btn.offsetWidth; // relance l'animation même si elle vient de tourner
+    btn.classList.add('is-spinning');
+    refreshData();
+  });
+}
+
+// ---- Plein écran ----
+
+function setupFullscreenToggle() {
+  const btn = document.getElementById('fullscreen-button');
+  btn.addEventListener('click', () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      document.documentElement.requestFullscreen();
+    }
+  });
+  document.addEventListener('fullscreenchange', () => {
+    const label = document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran';
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+  });
 }
 
 // ---- Récupération des données via l'API Google Sheets ----
@@ -390,6 +427,8 @@ function setupMetricToggle() {
 function startDashboard() {
   populateContestSelect();
   setupMetricToggle();
+  setupManualRefresh();
+  setupFullscreenToggle();
   if (DASHBOARD_CONFIG.contests.length > 0) {
     document.getElementById('contest-select').value = DASHBOARD_CONFIG.contests[0].id;
     loadContest(DASHBOARD_CONFIG.contests[0].id);
