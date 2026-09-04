@@ -122,6 +122,26 @@
   .icon-btn.is-spinning svg { animation: spin 0.7s linear; }
   @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
+  body.is-fullscreen header,
+  body.is-fullscreen main,
+  body.is-fullscreen footer {
+    max-width: none;
+  }
+  body.is-fullscreen main { padding: 40px 56px; }
+  body.is-fullscreen header { padding: 20px 56px; }
+  body.is-fullscreen .kpi-row { margin-bottom: 32px; }
+  body.is-fullscreen .kpi { padding: 26px 28px; }
+  body.is-fullscreen .kpi .label { font-size: 14px; }
+  body.is-fullscreen .kpi .value { font-size: 46px; }
+  body.is-fullscreen .kpi .delta { font-size: 15px; }
+  body.is-fullscreen .panel-header h2 { font-size: 20px; }
+  body.is-fullscreen .panel-body { padding: 26px; }
+  body.is-fullscreen .stat-row .stat-value { font-size: 28px; }
+  body.is-fullscreen #evolution-panel-body { height: 340px; }
+  body.is-fullscreen #weekday-panel-body { height: 260px; }
+  body.is-fullscreen .loyalty-chart { width: 200px; height: 200px; }
+  body.is-fullscreen .loyalty-legend .legend-row { font-size: 15px; }
+
   main {
     max-width: 1180px;
     margin: 0 auto;
@@ -426,7 +446,7 @@
         <button data-metric="Stops Cumulés">Stops</button>
       </div>
     </div>
-    <div class="panel-body">
+    <div class="panel-body" id="evolution-panel-body">
       <canvas id="evolution-chart" height="90"></canvas>
     </div>
   </div>
@@ -474,7 +494,7 @@
     </div>
     <div class="panel">
       <div class="panel-header"><h2>Volume par jour de la semaine</h2></div>
-      <div class="panel-body">
+      <div class="panel-body" id="weekday-panel-body">
         <canvas id="weekday-chart" height="140"></canvas>
       </div>
     </div>

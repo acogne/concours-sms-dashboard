@@ -131,7 +131,9 @@ function setupFullscreenToggle() {
     }
   });
   document.addEventListener('fullscreenchange', () => {
-    const label = document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran';
+    const isFullscreen = !!document.fullscreenElement;
+    document.body.classList.toggle('is-fullscreen', isFullscreen);
+    const label = isFullscreen ? 'Quitter le plein écran' : 'Plein écran';
     btn.title = label;
     btn.setAttribute('aria-label', label);
   });
