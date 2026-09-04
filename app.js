@@ -18,9 +18,11 @@ let accessToken = null;
 let tokenClient = null;
 let hasStartedDashboard = false;
 
-const AUTO_REFRESH_START = { hour: 9, minute: 0 };
-const AUTO_REFRESH_END = { hour: 20, minute: 0 };
-const AUTO_REFRESH_STEP_MINUTES = 30;
+const AUTO_REFRESH_START = { hour: 9, minute: 10 };
+const AUTO_REFRESH_END = { hour: 20, minute: 10 };
+const AUTO_REFRESH_STEP_MINUTES = 60;
+
+let lastRefreshAt = Date.now();
 
 const METRIC_LABELS = {
   'Total Entries': 'Entrées',
@@ -81,7 +83,7 @@ function initAuth() {
   });
 }
 
-// ---- Rafraîchissement automatique (toutes les 30' de 9h00 à 20h00) ----
+// ---- Rafraîchissement automatique (H+10 de 9h10 à 20h10) ----
 
 function nextAutoRefreshSlot() {
   const now = new Date();
@@ -107,9 +109,32 @@ function scheduleAutoRefresh() {
 }
 
 function refreshData() {
+  lastRefreshAt = Date.now();
   const select = document.getElementById('contest-select');
   if (select.value) loadContest(select.value);
 }
+
+// Filet de sécurité : un onglet mis en veille/arrière-plan par le navigateur
+// (mise en veille de l'ordi, throttling des timers) peut manquer un créneau
+// programmé. Quand l'onglet redevient visible, on rattrape si un créneau
+// aurait dû se déclencher entre-temps.
+function catchUpAutoRefreshIfNeeded() {
+  const now = new Date();
+  const totalMin = now.getHours() * 60 + now.getMinutes();
+  const startMin = AUTO_REFRESH_START.hour * 60 + AUTO_REFRESH_START.minute;
+  const endMin = AUTO_REFRESH_END.hour * 60 + AUTO_REFRESH_END.minute;
+  const withinWindow = totalMin >= startMin && totalMin <= endMin;
+  const minutesSinceLastRefresh = (Date.now() - lastRefreshAt) / 60000;
+  if (withinWindow && minutesSinceLastRefresh >= AUTO_REFRESH_STEP_MINUTES) {
+    refreshData();
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && hasStartedDashboard) {
+    catchUpAutoRefreshIfNeeded();
+  }
+});
 
 // ---- Bouton de rafraîchissement manuel ----
 
