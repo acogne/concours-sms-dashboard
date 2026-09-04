@@ -17,6 +17,7 @@ let currentMetric = 'Total Entries';
 let accessToken = null;
 let tokenClient = null;
 let hasStartedDashboard = false;
+let staleReloadTimer = null;
 
 const AUTO_REFRESH_START = { hour: 9, minute: 10 };
 const AUTO_REFRESH_END = { hour: 20, minute: 10 };
@@ -49,38 +50,65 @@ function showSigninError(message) {
   el.style.display = message ? 'block' : 'none';
 }
 
+function handleTokenResponse(response) {
+  if (response.error) {
+    if (hasStartedDashboard) {
+      showStatus('Session Google expirée. Recharge la page et reconnecte-toi.');
+      return;
+    }
+    showSigninError("Connexion Google refusée ou annulée. Réessaie.");
+    return;
+  }
+  accessToken = response.access_token;
+  if (!hasStartedDashboard) {
+    hasStartedDashboard = true;
+    showSigninError('');
+    document.getElementById('signin-screen').style.display = 'none';
+    document.getElementById('app-shell').style.display = 'block';
+    startDashboard();
+    scheduleAutoRefresh();
+    scheduleDailyReload();
+  } else {
+    const select = document.getElementById('contest-select');
+    if (select.value) loadContest(select.value);
+  }
+}
+
 function initAuth() {
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: DASHBOARD_CONFIG.googleClientId,
     scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
-    callback: (response) => {
-      if (response.error) {
-        if (hasStartedDashboard) {
-          showStatus('Session Google expirée. Recharge la page et reconnecte-toi.');
-          return;
-        }
-        showSigninError("Connexion Google refusée ou annulée. Réessaie.");
-        return;
-      }
-      accessToken = response.access_token;
-      if (!hasStartedDashboard) {
-        hasStartedDashboard = true;
-        showSigninError('');
-        document.getElementById('signin-screen').style.display = 'none';
-        document.getElementById('app-shell').style.display = 'block';
-        startDashboard();
-        scheduleAutoRefresh();
-      } else {
-        const select = document.getElementById('contest-select');
-        if (select.value) loadContest(select.value);
-      }
-    }
+    callback: handleTokenResponse
   });
 
   document.getElementById('signin-button').addEventListener('click', () => {
     showSigninError('');
     tokenClient.requestAccessToken();
   });
+
+  // Tentative de connexion silencieuse au chargement de la page : si une
+  // session Google valide existe déjà (écran laissé allumé, page rechargée),
+  // le dashboard démarre sans qu'il faille recliquer "Se connecter avec
+  // Google". Si ça échoue, on laisse simplement l'écran de connexion tel quel.
+  tokenClient.requestAccessToken({
+    prompt: '',
+    callback: (response) => {
+      if (response.error) return;
+      handleTokenResponse(response);
+    }
+  });
+}
+
+// Filet de sécurité pour un écran laissé sans surveillance sur la durée :
+// un rechargement complet chaque nuit repart sur une base saine (et retente
+// une connexion silencieuse toute seule, cf. ci-dessus) plutôt que de
+// compter indéfiniment sur l'état JS d'un onglet resté ouvert.
+function scheduleDailyReload() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(4, 0, 0, 0);
+  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
+  setTimeout(() => location.reload(), next.getTime() - now.getTime());
 }
 
 // ---- Rafraîchissement automatique (H+10 de 9h10 à 20h10) ----
@@ -227,7 +255,13 @@ function loadContest(contestId) {
     .then(res => {
       if (res.status === 401) {
         // Token expiré : on le renouvelle en silence, ce qui redéclenchera loadContest().
+        // Si ça ne débloque rien après quelques secondes (écran resté seul,
+        // renouvellement silencieux qui échoue sans même remonter d'erreur),
+        // on recharge la page plutôt que de rester coincé sur "Chargement…" :
+        // au démarrage, initAuth() retente elle-même une connexion silencieuse.
         tokenClient.requestAccessToken({ prompt: '' });
+        clearTimeout(staleReloadTimer);
+        staleReloadTimer = setTimeout(() => location.reload(), 20000);
         return null;
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -247,11 +281,13 @@ function loadContest(contestId) {
         return obj;
       }).filter(r => r.Timestamp);
 
+      clearTimeout(staleReloadTimer);
       currentRows = rows;
       showStatus('');
       renderDashboard(rows);
     })
     .catch(err => {
+      clearTimeout(staleReloadTimer);
       if (err.message && err.message.includes('403')) {
         showStatus("Ton compte Google n'a pas accès à ce Sheet. Vérifie que tu es connecté avec le bon compte et que tu as au moins un accès lecteur sur le document.");
       } else {
