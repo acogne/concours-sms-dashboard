@@ -150,19 +150,29 @@ function setupManualRefresh() {
 
 // ---- Plein écran ----
 
+function toggleFullscreen() {
+  if (document.fullscreenElement) {
+    document.exitFullscreen();
+  } else {
+    document.documentElement.requestFullscreen();
+  }
+}
+
 function setupFullscreenToggle() {
   const btn = document.getElementById('fullscreen-button');
-  btn.addEventListener('click', () => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
-    } else {
-      document.documentElement.requestFullscreen();
-    }
+  btn.addEventListener('click', toggleFullscreen);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() !== 'f' || e.ctrlKey || e.altKey || e.metaKey) return;
+    const tag = document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    toggleFullscreen();
   });
+
   document.addEventListener('fullscreenchange', () => {
     const isFullscreen = !!document.fullscreenElement;
     document.body.classList.toggle('is-fullscreen', isFullscreen);
-    const label = isFullscreen ? 'Quitter le plein écran' : 'Plein écran';
+    const label = isFullscreen ? 'Quitter le plein écran (F)' : 'Plein écran (F)';
     btn.title = label;
     btn.setAttribute('aria-label', label);
     // Le conteneur change de taille en dehors d'un resize de fenêtre classique :
