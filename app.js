@@ -37,7 +37,7 @@ const WEEKDAY_COLUMNS = ['Entrées Lundi', 'Entrées Mardi', 'Entrées Mercredi'
 const WEEKDAY_LABELS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 
 const HOUR_LABELS = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0') + 'h');
-const HOUR_COLUMNS = HOUR_LABELS.map(h => `Entrées ${h}`);
+const HOUR_COLUMNS = HOUR_LABELS.map(h => `entries_${h}`);
 
 function cleanNumber(raw) {
   if (typeof raw !== 'string') return Number(raw) || 0;
