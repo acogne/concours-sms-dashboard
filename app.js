@@ -335,6 +335,7 @@ function renderEvolutionChart(rows, metric) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
       plugins: { legend: { display: false } },
       scales: {
         x: {
