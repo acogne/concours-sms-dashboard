@@ -140,6 +140,10 @@ function setupFullscreenToggle() {
     const label = isFullscreen ? 'Quitter le plein écran' : 'Plein écran';
     btn.title = label;
     btn.setAttribute('aria-label', label);
+    // Le conteneur change de taille en dehors d'un resize de fenêtre classique :
+    // on force les charts à se redimensionner plutôt que de compter sur leur
+    // ResizeObserver, qui peut rater la transition plein écran.
+    [evolutionChart, loyaltyChart, weekdayChart].forEach(chart => chart && chart.resize());
   });
 }
 
