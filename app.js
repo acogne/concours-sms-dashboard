@@ -274,7 +274,7 @@ function loadContest(contestId) {
     .then(json => {
       if (!json) return;
       const values = json.values || [];
-      if (values.length < 2) {
+      if (values.length === 0) {
         showStatus(`Aucune donnée trouvée dans l'onglet "${contest.sheetTab}". Vérifie que le nom de l'onglet dans config.js correspond exactement.`);
         return;
       }
@@ -285,10 +285,13 @@ function loadContest(contestId) {
         return obj;
       }).filter(r => r.Timestamp);
 
+      // Concours pas encore démarré (onglet créé, mais aucune ligne de
+      // données envoyée par Make.com) : on affiche quand même le dashboard,
+      // avec toutes les cartouches à 0, plutôt qu'un message d'erreur.
       clearTimeout(staleReloadTimer);
-      currentRows = rows;
+      currentRows = rows.length > 0 ? rows : [{}];
       showStatus('');
-      renderDashboard(rows);
+      renderDashboard(currentRows);
     })
     .catch(err => {
       clearTimeout(staleReloadTimer);
@@ -390,6 +393,7 @@ function renderStats(latest) {
 function renderEvolutionChart(rows, metric) {
   const labels = rows.map(r => {
     const d = new Date(r.Timestamp);
+    if (isNaN(d.getTime())) return '';
     return d.toLocaleString('fr-CH', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   });
   const data = rows.map(r => cleanNumber(r[metric]));
