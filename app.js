@@ -534,8 +534,9 @@ function startDashboard() {
   setupManualRefresh();
   setupFullscreenToggle();
   if (DASHBOARD_CONFIG.contests.length > 0) {
-    document.getElementById('contest-select').value = DASHBOARD_CONFIG.contests[0].id;
-    loadContest(DASHBOARD_CONFIG.contests[0].id);
+    const defaultContest = DASHBOARD_CONFIG.contests[DASHBOARD_CONFIG.contests.length - 1];
+    document.getElementById('contest-select').value = defaultContest.id;
+    loadContest(defaultContest.id);
   } else {
     showStatus('Aucun concours configuré. Ajoute-en un dans config.js.');
   }
