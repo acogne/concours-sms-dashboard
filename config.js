@@ -14,6 +14,13 @@ const DASHBOARD_CONFIG = {
       sheetTab: "Céline Dion",
       station: "One FM",
       keyword: "CÉLINE"
+    },
+    {
+      id: "Disney",
+      label: "Disney",
+      sheetTab: "Disney",
+      station: "One FM",
+      keyword: "PARIS"
     }
     // { id: "prochain-concours", label: "Nom du concours", sheetTab: "Nom de l'onglet", station: "One FM", keyword: "MOTCLE" },
   ]
