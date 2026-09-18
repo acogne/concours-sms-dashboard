@@ -15,6 +15,7 @@ let weekdayChart = null;
 let hourlyChart = null;
 let currentRows = [];
 let currentMetric = 'Total Entries';
+let discoveredContests = [];
 let accessToken = null;
 let tokenClient = null;
 let hasStartedDashboard = false;
@@ -226,16 +227,55 @@ function sheetApiUrl(sheetTab) {
   return `https://sheets.googleapis.com/v4/spreadsheets/${DASHBOARD_CONFIG.sheetId}/values/${range}`;
 }
 
-function populateContestSelect() {
-  const select = document.getElementById('contest-select');
-  select.innerHTML = '';
-  DASHBOARD_CONFIG.contests.forEach(c => {
-    const opt = document.createElement('option');
-    opt.value = c.id;
-    opt.textContent = c.label;
-    select.appendChild(opt);
-  });
-  select.addEventListener('change', () => loadContest(select.value));
+function sheetMetadataUrl() {
+  return `https://sheets.googleapis.com/v4/spreadsheets/${DASHBOARD_CONFIG.sheetId}?fields=sheets.properties.title`;
+}
+
+function parseContestFromTabName(title) {
+  const separatorIndex = title.indexOf(' - ');
+  const station = separatorIndex === -1 ? 'One FM' : title.slice(0, separatorIndex);
+  const label = separatorIndex === -1 ? title : title.slice(separatorIndex + 3);
+  const id = title.toLowerCase().replace(/ /g, '-');
+  return { id, label, sheetTab: title, station };
+}
+
+function discoverContests() {
+  if (!accessToken) return;
+  showStatus('Chargement des concours…');
+
+  fetch(sheetMetadataUrl(), {
+    headers: { 'Authorization': `Bearer ${accessToken}` }
+  })
+    .then(res => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    })
+    .then(json => {
+      const titles = (json.sheets || []).map(s => s.properties.title);
+      if (titles.length === 0) {
+        showStatus("Aucun onglet trouvé dans le Google Sheet.");
+        return;
+      }
+
+      discoveredContests = titles.map(parseContestFromTabName).reverse();
+
+      const select = document.getElementById('contest-select');
+      select.innerHTML = '';
+      discoveredContests.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = c.label;
+        select.appendChild(opt);
+      });
+      select.addEventListener('change', () => loadContest(select.value));
+
+      const defaultContest = discoveredContests[0];
+      select.value = defaultContest.id;
+      loadContest(defaultContest.id);
+    })
+    .catch(err => {
+      showStatus("Impossible de charger la liste des concours (" + err.message + ").");
+    });
 }
 
 function showStatus(message) {
@@ -247,7 +287,7 @@ function showStatus(message) {
 }
 
 function loadContest(contestId) {
-  const contest = DASHBOARD_CONFIG.contests.find(c => c.id === contestId);
+  const contest = discoveredContests.find(c => c.id === contestId);
   if (!contest || !accessToken) return;
 
   document.getElementById('station-name').textContent = contest.station || '';
@@ -533,17 +573,10 @@ function setupMetricToggle() {
 }
 
 function startDashboard() {
-  populateContestSelect();
   setupMetricToggle();
   setupManualRefresh();
   setupFullscreenToggle();
-  if (DASHBOARD_CONFIG.contests.length > 0) {
-    const defaultContest = DASHBOARD_CONFIG.contests[DASHBOARD_CONFIG.contests.length - 1];
-    document.getElementById('contest-select').value = defaultContest.id;
-    loadContest(defaultContest.id);
-  } else {
-    showStatus('Aucun concours configuré. Ajoute-en un dans config.js.');
-  }
+  discoverContests();
 }
 
 initAuth();
