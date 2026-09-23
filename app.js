@@ -34,6 +34,10 @@ const METRIC_LABELS = {
   'Stops Cumulés': 'Stops cumulés'
 };
 
+const METRIC_FORMATTERS = {
+  'Net Revenue CHF': n => CHF_FMT.format(n)
+};
+
 const WEEKDAY_COLUMNS = ['Entrées Lundi', 'Entrées Mardi', 'Entrées Mercredi', 'Entrées Jeudi', 'Entrées Vendredi', 'Entrées Samedi', 'Entrées Dimanche'];
 const WEEKDAY_LABELS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 
@@ -437,6 +441,10 @@ function renderEvolutionChart(rows, metric) {
     return d.toLocaleString('fr-CH', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   });
   const data = rows.map(r => cleanNumber(r[metric]));
+
+  const formatter = METRIC_FORMATTERS[metric] || (n => NUM_FMT.format(n));
+  const latestValue = data.length ? data[data.length - 1] : 0;
+  document.getElementById('evolution-current-value').textContent = formatter(latestValue);
 
   const ctx = document.getElementById('evolution-chart').getContext('2d');
   if (evolutionChart) evolutionChart.destroy();
