@@ -277,13 +277,13 @@
 
   .secondary-grid {
     display: grid;
-    grid-template-columns: 1.3fr 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 20px;
   }
 
   .two-col-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 20px;
   }
 
@@ -484,6 +484,7 @@
       <div class="label">Revenu net</div>
       <div class="value display" id="kpi-revenue">—</div>
       <div class="delta" id="kpi-revenue-delta"></div>
+      <div class="delta" id="kpi-revenue-estimate" style="display:none;">(estimation)</div>
     </div>
   </div>
 
@@ -503,12 +504,12 @@
     </div>
   </div>
 
-  <div class="secondary-grid">
-    <div class="panel">
+  <div class="secondary-grid" id="secondary-grid">
+    <div class="panel" id="panel-network">
       <div class="panel-header"><h2>Répartition réseau</h2></div>
       <div class="panel-body" id="network-split"></div>
     </div>
-    <div class="panel">
+    <div class="panel" id="panel-sms">
       <div class="panel-header"><h2>SMS sortants</h2></div>
       <div class="panel-body">
         <div class="stat-row">
@@ -528,7 +529,7 @@
           <span class="stat-label">Plafond atteint (MSISDN)</span>
           <span class="stat-value display" id="stat-cap">—</span>
         </div>
-        <div class="stat-row">
+        <div class="stat-row" id="stat-errors-row">
           <span class="stat-label">Erreurs mot-clé</span>
           <span class="stat-value display" id="stat-errors">—</span>
         </div>
@@ -536,15 +537,15 @@
     </div>
   </div>
 
-  <div class="two-col-grid">
-    <div class="panel">
+  <div class="two-col-grid" id="two-col-grid">
+    <div class="panel" id="panel-loyalty">
       <div class="panel-header"><h2>Fidélité participants</h2></div>
       <div class="panel-body loyalty-body">
         <div class="loyalty-chart"><canvas id="loyalty-chart" height="140"></canvas></div>
         <div class="loyalty-legend" id="loyalty-legend"></div>
       </div>
     </div>
-    <div class="panel">
+    <div class="panel" id="panel-weekday">
       <div class="panel-header"><h2>Volume par jour de la semaine</h2></div>
       <div class="panel-body" id="weekday-panel-body">
         <canvas id="weekday-chart" height="140"></canvas>
@@ -552,7 +553,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="panel-hourly">
     <div class="panel-header"><h2>Volume par heure de la journée</h2></div>
     <div class="panel-body" id="hourly-panel-body">
       <canvas id="hourly-chart" height="140"></canvas>

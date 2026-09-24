@@ -51,6 +51,20 @@ function cleanNumber(raw) {
   return isNaN(n) ? 0 : n;
 }
 
+// Certaines mesures (coût bulk, réseau opérateur, erreurs) ne sont plus
+// suivies par concours mais seulement au niveau groupe : cette fonction
+// distingue "colonne vide/absente pour ce concours" de "colonne à 0",
+// avant tout passage dans cleanNumber().
+function hasRawValue(row, col) {
+  const v = row[col];
+  return v !== undefined && v !== null && String(v).trim() !== '';
+}
+
+function setPanelVisible(id, visible) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = visible ? '' : 'none';
+}
+
 // ---- Authentification Google ----
 
 function showSigninError(message) {
@@ -361,6 +375,7 @@ function renderDashboard(rows) {
   renderLoyalty(latest);
   renderWeekdayVolume(latest);
   renderHourlyVolume(latest);
+  updateGridContainerVisibility();
 }
 
 function renderDelta(elId, latestVal, prevVal, formatter) {
@@ -373,22 +388,30 @@ function renderDelta(elId, latestVal, prevVal, formatter) {
   el.classList.toggle('positive', diff > 0);
 }
 
+function getRevenue(row) {
+  if (hasRawValue(row, 'Net Revenue CHF')) {
+    return { value: cleanNumber(row['Net Revenue CHF']), isEstimate: false };
+  }
+  return { value: cleanNumber(row['Revenu Net Estimé CHF']), isEstimate: true };
+}
+
 function renderKpis(latest, previous) {
   const users = cleanNumber(latest['Charged Unique Users']);
   const chargedEntries = cleanNumber(latest['Charged Entries']);
   const entries = cleanNumber(latest['Total Entries']);
-  const revenue = cleanNumber(latest['Net Revenue CHF']);
+  const revenueInfo = getRevenue(latest);
 
   document.getElementById('kpi-users').textContent = NUM_FMT.format(users);
   document.getElementById('kpi-charged-entries').textContent = NUM_FMT.format(chargedEntries);
   document.getElementById('kpi-entries').textContent = NUM_FMT.format(entries);
-  document.getElementById('kpi-revenue').textContent = CHF_FMT.format(revenue);
+  document.getElementById('kpi-revenue').textContent = CHF_FMT.format(revenueInfo.value);
+  document.getElementById('kpi-revenue-estimate').style.display = revenueInfo.isEstimate ? 'block' : 'none';
 
   if (previous) {
     renderDelta('kpi-users-delta', users, cleanNumber(previous['Charged Unique Users']), n => NUM_FMT.format(n));
     renderDelta('kpi-charged-entries-delta', chargedEntries, cleanNumber(previous['Charged Entries']), n => NUM_FMT.format(n));
     renderDelta('kpi-entries-delta', entries, cleanNumber(previous['Total Entries']), n => NUM_FMT.format(n));
-    renderDelta('kpi-revenue-delta', revenue, cleanNumber(previous['Net Revenue CHF']), n => CHF_FMT.format(n));
+    renderDelta('kpi-revenue-delta', revenueInfo.value, getRevenue(previous).value, n => CHF_FMT.format(n));
   } else {
     ['kpi-users-delta', 'kpi-charged-entries-delta', 'kpi-entries-delta', 'kpi-revenue-delta'].forEach(id => {
       document.getElementById(id).textContent = '';
@@ -408,6 +431,10 @@ function renderLastUpdate(timestamp) {
 }
 
 function renderNetworkSplit(latest) {
+  const visible = hasRawValue(latest, 'Swisscom');
+  setPanelVisible('panel-network', visible);
+  if (!visible) return;
+
   const operators = [
     { label: 'Swisscom', value: cleanNumber(latest['Swisscom']), color: COLORS.accent },
     { label: 'Sunrise', value: cleanNumber(latest['Sunrise']), color: COLORS.accent2 },
@@ -428,10 +455,20 @@ function renderNetworkSplit(latest) {
 }
 
 function renderStats(latest) {
-  document.getElementById('stat-delivered').textContent = NUM_FMT.format(cleanNumber(latest['Delivered Bulk']));
-  document.getElementById('stat-bulkcost').textContent = CHF_FMT.format(cleanNumber(latest['Bulk Cost CHF']));
+  const smsVisible = hasRawValue(latest, 'Delivered Bulk');
+  setPanelVisible('panel-sms', smsVisible);
+  if (smsVisible) {
+    document.getElementById('stat-delivered').textContent = NUM_FMT.format(cleanNumber(latest['Delivered Bulk']));
+    document.getElementById('stat-bulkcost').textContent = CHF_FMT.format(cleanNumber(latest['Bulk Cost CHF']));
+  }
+
   document.getElementById('stat-cap').textContent = NUM_FMT.format(cleanNumber(latest['Entry Cap']));
-  document.getElementById('stat-errors').textContent = NUM_FMT.format(cleanNumber(latest['Error Count']));
+
+  const errorsVisible = hasRawValue(latest, 'Error Count');
+  setPanelVisible('stat-errors-row', errorsVisible);
+  if (errorsVisible) {
+    document.getElementById('stat-errors').textContent = NUM_FMT.format(cleanNumber(latest['Error Count']));
+  }
 }
 
 function renderEvolutionChart(rows, metric) {
@@ -485,6 +522,10 @@ function renderEvolutionChart(rows, metric) {
 }
 
 function renderLoyalty(latest) {
+  const visible = hasRawValue(latest, 'Participants 1x');
+  setPanelVisible('panel-loyalty', visible);
+  if (!visible) return;
+
   const once = cleanNumber(latest['Participants 1x']);
   const multi = cleanNumber(latest['Participants 2x+']);
   const total = once + multi || 1;
@@ -559,13 +600,27 @@ function renderBarChart(canvasId, existingChart, labels, data) {
 }
 
 function renderWeekdayVolume(latest) {
+  const visible = hasRawValue(latest, 'Entrées Lundi');
+  setPanelVisible('panel-weekday', visible);
+  if (!visible) return;
+
   const data = WEEKDAY_COLUMNS.map(col => cleanNumber(latest[col]));
   weekdayChart = renderBarChart('weekday-chart', weekdayChart, WEEKDAY_LABELS, data);
 }
 
 function renderHourlyVolume(latest) {
+  const visible = hasRawValue(latest, HOUR_COLUMNS[0]);
+  setPanelVisible('panel-hourly', visible);
+  if (!visible) return;
+
   const data = HOUR_COLUMNS.map(col => cleanNumber(latest[col]));
   hourlyChart = renderBarChart('hourly-chart', hourlyChart, HOUR_LABELS, data);
+}
+
+function updateGridContainerVisibility() {
+  const loyaltyVisible = document.getElementById('panel-loyalty').style.display !== 'none';
+  const weekdayVisible = document.getElementById('panel-weekday').style.display !== 'none';
+  setPanelVisible('two-col-grid', loyaltyVisible || weekdayVisible);
 }
 
 function setupMetricToggle() {
