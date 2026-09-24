@@ -600,7 +600,7 @@ function renderBarChart(canvasId, existingChart, labels, data) {
 }
 
 function renderWeekdayVolume(latest) {
-  const visible = hasRawValue(latest, 'Entrées Lundi');
+  const visible = WEEKDAY_COLUMNS.some(col => hasRawValue(latest, col));
   setPanelVisible('panel-weekday', visible);
   if (!visible) return;
 
