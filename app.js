@@ -240,42 +240,56 @@ function setupFullscreenToggle() {
 
 // ---- Récupération des données via l'API Google Sheets ----
 
-function sheetApiUrl(sheetTab) {
+function sheetApiUrl(sheetId, sheetTab) {
   const range = encodeURIComponent(`${sheetTab}!A:AZ`);
-  return `https://sheets.googleapis.com/v4/spreadsheets/${DASHBOARD_CONFIG.sheetId}/values/${range}`;
+  return `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}`;
 }
 
-function sheetMetadataUrl() {
-  return `https://sheets.googleapis.com/v4/spreadsheets/${DASHBOARD_CONFIG.sheetId}?fields=sheets.properties.title`;
+function sheetMetadataUrl(sheetId) {
+  return `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets.properties.title`;
 }
 
-function parseContestFromTabName(title) {
+function parseContestFromTabName(title, sheetKey, sheetId) {
+  const id = title.toLowerCase().replace(/ /g, '-');
+
+  // Le Sheet "Media One" (concours suivis uniquement au niveau groupe) ne
+  // suit pas la convention "Station - Concours" : chaque onglet est déjà
+  // rattaché à Media One tel quel, sans découpage sur " - ".
+  if (sheetKey === 'Media One') {
+    return { id, label: title, sheetTab: title, station: 'Media One', sheetId };
+  }
+
   const separatorIndex = title.indexOf(' - ');
   const station = separatorIndex === -1 ? 'One FM' : title.slice(0, separatorIndex);
   const label = separatorIndex === -1 ? title : title.slice(separatorIndex + 3);
-  const id = title.toLowerCase().replace(/ /g, '-');
-  return { id, label, sheetTab: title, station };
+  return { id, label, sheetTab: title, station, sheetId };
 }
 
 function discoverContests() {
   if (!accessToken) return;
   showStatus('Chargement des concours…');
 
-  fetch(sheetMetadataUrl(), {
-    headers: { 'Authorization': `Bearer ${accessToken}` }
-  })
-    .then(res => {
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
+  const sheetEntries = Object.entries(DASHBOARD_CONFIG.sheetIds);
+
+  Promise.all(sheetEntries.map(([sheetKey, sheetId]) =>
+    fetch(sheetMetadataUrl(sheetId), {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
     })
-    .then(json => {
-      const titles = (json.sheets || []).map(s => s.properties.title);
-      if (titles.length === 0) {
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(json => {
+        const titles = (json.sheets || []).map(s => s.properties.title);
+        return titles.map(title => parseContestFromTabName(title, sheetKey, sheetId)).reverse();
+      })
+  ))
+    .then(perSheetContests => {
+      discoveredContests = perSheetContests.flat();
+      if (discoveredContests.length === 0) {
         showStatus("Aucun onglet trouvé dans le Google Sheet.");
         return;
       }
-
-      discoveredContests = titles.map(parseContestFromTabName).reverse();
 
       const select = document.getElementById('contest-select');
       select.innerHTML = '';
@@ -311,7 +325,7 @@ function loadContest(contestId) {
   document.getElementById('station-name').textContent = contest.station || '';
   showStatus('Chargement des données…');
 
-  fetch(sheetApiUrl(contest.sheetTab), {
+  fetch(sheetApiUrl(contest.sheetId, contest.sheetTab), {
     headers: { 'Authorization': `Bearer ${accessToken}` }
   })
     .then(res => {
