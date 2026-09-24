@@ -285,7 +285,11 @@ function discoverContests() {
       })
   ))
     .then(perSheetContests => {
-      discoveredContests = perSheetContests.flat();
+      // "Media One" (concours suivis au niveau groupe) passe toujours en
+      // tête de liste, et donc se charge par défaut au démarrage.
+      discoveredContests = perSheetContests.flat().sort((a, b) =>
+        (a.station === 'Media One' ? 0 : 1) - (b.station === 'Media One' ? 0 : 1)
+      );
       if (discoveredContests.length === 0) {
         showStatus("Aucun onglet trouvé dans le Google Sheet.");
         return;
@@ -409,10 +413,14 @@ function getRevenue(row) {
   return { value: cleanNumber(row['Revenu Net Estimé CHF']), isEstimate: true };
 }
 
+function getTotalEntries(row) {
+  return hasRawValue(row, 'Total Entries') ? cleanNumber(row['Total Entries']) : cleanNumber(row['Charged Entries']);
+}
+
 function renderKpis(latest, previous) {
   const users = cleanNumber(latest['Charged Unique Users']);
   const chargedEntries = cleanNumber(latest['Charged Entries']);
-  const entries = cleanNumber(latest['Total Entries']);
+  const entries = getTotalEntries(latest);
   const revenueInfo = getRevenue(latest);
 
   document.getElementById('kpi-users').textContent = NUM_FMT.format(users);
@@ -424,7 +432,7 @@ function renderKpis(latest, previous) {
   if (previous) {
     renderDelta('kpi-users-delta', users, cleanNumber(previous['Charged Unique Users']), n => NUM_FMT.format(n));
     renderDelta('kpi-charged-entries-delta', chargedEntries, cleanNumber(previous['Charged Entries']), n => NUM_FMT.format(n));
-    renderDelta('kpi-entries-delta', entries, cleanNumber(previous['Total Entries']), n => NUM_FMT.format(n));
+    renderDelta('kpi-entries-delta', entries, getTotalEntries(previous), n => NUM_FMT.format(n));
     renderDelta('kpi-revenue-delta', revenueInfo.value, getRevenue(previous).value, n => CHF_FMT.format(n));
   } else {
     ['kpi-users-delta', 'kpi-charged-entries-delta', 'kpi-entries-delta', 'kpi-revenue-delta'].forEach(id => {
@@ -491,7 +499,7 @@ function renderEvolutionChart(rows, metric) {
     if (isNaN(d.getTime())) return '';
     return d.toLocaleString('fr-CH', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   });
-  const data = rows.map(r => cleanNumber(r[metric]));
+  const data = rows.map(r => metric === 'Total Entries' ? getTotalEntries(r) : cleanNumber(r[metric]));
 
   const formatter = METRIC_FORMATTERS[metric] || (n => NUM_FMT.format(n));
   const latestValue = data.length ? data[data.length - 1] : 0;
