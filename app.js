@@ -14,8 +14,13 @@ let loyaltyChart = null;
 let weekdayChart = null;
 let hourlyChart = null;
 let currentRows = [];
-let currentMetric = 'Total Entries';
+let currentMetric = null;
+let lastRenderedKey = null;
 let discoveredContests = [];
+let overallContest = null;
+let currentView = 'game'; // 'game' | 'overall'
+let lastGameId = null;
+let loadSeq = 0;
 let accessToken = null;
 let tokenClient = null;
 let hasStartedDashboard = false;
@@ -27,16 +32,30 @@ const AUTO_REFRESH_STEP_MINUTES = 60;
 
 let lastRefreshAt = Date.now();
 
-const METRIC_LABELS = {
-  'Total Entries': 'Entrées',
-  'Charged Unique Users': 'Participants',
-  'Net Revenue CHF': 'Revenu net (CHF)',
-  'Stops Cumulés': 'Stops cumulés'
+const fmtNum = n => NUM_FMT.format(n);
+const fmtChf = n => CHF_FMT.format(n);
+
+// Boutons du graphique d'évolution, par vue, dans l'ordre d'affichage.
+// Le bouton "Stops" n'apparaît que si la dernière valeur est > 0.
+const GAME_METRICS = {
+  default: 'Outpayment CHF',
+  list: [
+    { col: 'Charged Entries', label: 'Participations', fmt: fmtNum },
+    { col: 'Charged Unique Users', label: 'Participants', fmt: fmtNum },
+    { col: 'Outpayment CHF', label: 'Revenu brut', fmt: fmtChf },
+    { col: 'Stops Cumulés', label: 'Stops', fmt: fmtNum, onlyIfPositive: true }
+  ]
+};
+const OVERALL_METRICS = {
+  default: 'Net Revenue CHF',
+  list: [
+    { col: 'Charged Entries', label: 'Participations', fmt: fmtNum },
+    { col: 'Outpayment CHF', label: 'Revenu brut', fmt: fmtChf },
+    { col: 'Net Revenue CHF', label: 'Revenu net', fmt: fmtChf }
+  ]
 };
 
-const METRIC_FORMATTERS = {
-  'Net Revenue CHF': n => CHF_FMT.format(n)
-};
+const STALE_AFTER_MS = 48 * 3600 * 1000;
 
 const WEEKDAY_COLUMNS = ['Entrées Lundi', 'Entrées Mardi', 'Entrées Mercredi', 'Entrées Jeudi', 'Entrées Vendredi', 'Entrées Samedi', 'Entrées Dimanche'];
 const WEEKDAY_LABELS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
@@ -44,25 +63,46 @@ const WEEKDAY_LABELS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Same
 const HOUR_LABELS = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0') + 'h');
 const HOUR_COLUMNS = HOUR_LABELS.map(h => `entries_${h}`);
 
-function cleanNumber(raw) {
-  if (typeof raw !== 'string') return Number(raw) || 0;
-  const cleaned = raw.replace(/[',’\s]/g, '').replace(/CHF/gi, '').trim();
-  const n = parseFloat(cleaned);
-  return isNaN(n) ? 0 : n;
+// Convertit une cellule en nombre, ou null si la cellule est vide, absente
+// ou ne contient pas de vraie valeur numérique. Gère "1'234.5", "1,234.5",
+// "8 665,42" (virgule décimale) et un éventuel suffixe "CHF".
+function parseNumber(raw) {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw === 'number') return isFinite(raw) ? raw : null;
+  let s = String(raw).replace(/CHF/gi, '').replace(/['’\s  ]/g, '');
+  if (s === '') return null;
+  if (s.includes(',') && s.includes('.')) {
+    s = s.replace(/,/g, '');
+  } else if (/,\d{1,2}$/.test(s)) {
+    s = s.replace(',', '.');
+  } else {
+    s = s.replace(/,/g, '');
+  }
+  if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
+  const n = parseFloat(s);
+  return isFinite(n) ? n : null;
 }
 
-// Certaines mesures (coût bulk, réseau opérateur, erreurs) ne sont plus
-// suivies par concours mais seulement au niveau groupe : cette fonction
-// distingue "colonne vide/absente pour ce concours" de "colonne à 0",
-// avant tout passage dans cleanNumber().
-function hasRawValue(row, col) {
-  const v = row[col];
-  return v !== undefined && v !== null && String(v).trim() !== '';
+function num(row, col) {
+  return row ? parseNumber(row[col]) : null;
+}
+
+function firstNum(row, cols) {
+  for (const col of cols) {
+    const v = num(row, col);
+    if (v !== null) return v;
+  }
+  return null;
 }
 
 function setPanelVisible(id, visible) {
   const el = document.getElementById(id);
   if (el) el.style.display = visible ? '' : 'none';
+}
+
+function isVisible(id) {
+  const el = document.getElementById(id);
+  return !!el && el.style.display !== 'none';
 }
 
 // ---- Authentification Google ----
@@ -285,12 +325,16 @@ function discoverContests() {
       })
   ))
     .then(perSheetContests => {
-      // "Media One" (concours suivis au niveau groupe) passe toujours en
-      // tête de liste, et donc se charge par défaut au démarrage.
-      discoveredContests = perSheetContests.flat().sort((a, b) =>
-        (a.station === 'Media One' ? 0 : 1) - (b.station === 'Media One' ? 0 : 1)
-      );
-      if (discoveredContests.length === 0) {
+      // La feuille "Overall" du Sheet Media One contient les cumuls de tous
+      // les jeux : elle alimente la vue "Bilan global" et ne figure pas dans
+      // la liste des concours. Les onglets sont déjà triés du plus récent au
+      // plus ancien (dernier onglet du Sheet = concours le plus récent).
+      const all = perSheetContests.flat();
+      overallContest = all.find(isOverallContest) || null;
+      discoveredContests = all.filter(c => !isOverallContest(c));
+      document.getElementById('overall-button').style.display = overallContest ? '' : 'none';
+
+      if (discoveredContests.length === 0 && !overallContest) {
         showStatus("Aucun onglet trouvé dans le Google Sheet.");
         return;
       }
@@ -303,11 +347,13 @@ function discoverContests() {
         opt.textContent = c.label;
         select.appendChild(opt);
       });
-      select.addEventListener('change', () => loadContest(select.value));
+      select.addEventListener('change', () => showGameView(select.value));
 
-      const defaultContest = discoveredContests[0];
-      select.value = defaultContest.id;
-      loadContest(defaultContest.id);
+      if (discoveredContests.length === 0) {
+        showOverallView();
+        return;
+      }
+      showGameView(discoveredContests[0].id);
     })
     .catch(err => {
       showStatus("Impossible de charger la liste des concours (" + err.message + ").");
@@ -322,10 +368,42 @@ function showStatus(message) {
   main.style.display = message ? 'none' : 'block';
 }
 
+function isOverallContest(c) {
+  return c.station === 'Media One' && c.sheetTab.trim().toLowerCase() === 'overall';
+}
+
+function applyViewChrome() {
+  const isOverall = currentView === 'overall';
+  document.getElementById('contest-select').style.display = isOverall ? 'none' : '';
+  document.getElementById('overall-button').style.display = !isOverall && overallContest ? '' : 'none';
+}
+
+function showGameView(contestId) {
+  if (!contestId) return;
+  currentView = 'game';
+  lastGameId = contestId;
+  document.getElementById('contest-select').value = contestId;
+  applyViewChrome();
+  loadContest(contestId);
+}
+
+function showOverallView() {
+  if (!overallContest) return;
+  currentView = 'overall';
+  applyViewChrome();
+  loadContest(overallContest.id);
+}
+
+// Point d'entrée unique du chargement (aussi appelé par le rafraîchissement
+// et le renouvellement du token) : en vue "Bilan global", on recharge
+// toujours la feuille Overall, quel que soit l'identifiant reçu.
 function loadContest(contestId) {
-  const contest = discoveredContests.find(c => c.id === contestId);
+  const contest = currentView === 'overall'
+    ? overallContest
+    : discoveredContests.find(c => c.id === contestId);
   if (!contest || !accessToken) return;
 
+  const seq = ++loadSeq;
   document.getElementById('station-name').textContent = contest.station || '';
   showStatus('Chargement des données…');
 
@@ -348,7 +426,7 @@ function loadContest(contestId) {
       return res.json();
     })
     .then(json => {
-      if (!json) return;
+      if (!json || seq !== loadSeq) return; // réponse d'un chargement remplacé entre-temps
       const values = json.values || [];
       if (values.length === 0) {
         showStatus(`Aucune donnée trouvée dans l'onglet "${contest.sheetTab}". Vérifie que le nom de l'onglet dans config.js correspond exactement.`);
@@ -362,14 +440,15 @@ function loadContest(contestId) {
       }).filter(r => r.Timestamp);
 
       // Concours pas encore démarré (onglet créé, mais aucune ligne de
-      // données envoyée par Make.com) : on affiche quand même le dashboard,
-      // avec toutes les cartouches à 0, plutôt qu'un message d'erreur.
+      // données envoyée par Make.com) : renderDashboard() affiche alors
+      // simplement le titre et un court message, sans panneau vide.
       clearTimeout(staleReloadTimer);
-      currentRows = rows.length > 0 ? rows : [{}];
+      currentRows = rows;
       showStatus('');
-      renderDashboard(currentRows);
+      renderDashboard(contest, currentRows);
     })
     .catch(err => {
+      if (seq !== loadSeq) return;
       clearTimeout(staleReloadTimer);
       if (err.message && err.message.includes('403')) {
         showStatus("Ton compte Google n'a pas accès à ce Sheet. Vérifie que tu es connecté avec le bon compte et que tu as au moins un accès lecteur sur le document.");
@@ -380,130 +459,218 @@ function loadContest(contestId) {
 }
 
 // ---- Rendu ----
+// Règle générale : une valeur absente, vide ou non numérique n'est jamais
+// affichée (ni "0", ni "—"), et un KPI, un bouton ou un panneau sans
+// données est masqué.
 
-function renderDashboard(rows) {
-  const latest = rows[rows.length - 1];
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function currentMetricsConfig() {
+  return currentView === 'overall' ? OVERALL_METRICS : GAME_METRICS;
+}
+
+function renderDashboard(contest, rows) {
+  const isOverall = currentView === 'overall';
+  const latest = rows.length ? rows[rows.length - 1] : null;
   const previous = rows.length > 1 ? rows[rows.length - 2] : null;
 
-  renderKpis(latest, previous);
-  renderLastUpdate(latest.Timestamp);
-  renderNetworkSplit(latest);
-  renderStats(latest);
-  renderEvolutionChart(rows, currentMetric);
-  renderLoyalty(latest);
-  renderWeekdayVolume(latest);
-  renderHourlyVolume(latest);
-  updateGridContainerVisibility();
-}
-
-function renderDelta(elId, latestVal, prevVal, formatter) {
-  const el = document.getElementById(elId);
-  if (prevVal === null || prevVal === undefined) { el.textContent = ''; return; }
-  const diff = latestVal - prevVal;
-  const formattedAbs = formatter(Math.abs(diff));
-  if (!/[1-9]/.test(formattedAbs)) { el.textContent = 'stable / h'; el.classList.remove('positive'); return; }
-  el.textContent = `${diff > 0 ? '▲ +' : '▼ '}${formattedAbs} / h`;
-  el.classList.toggle('positive', diff > 0);
-}
-
-function getRevenue(row) {
-  if (hasRawValue(row, 'Net Revenue CHF')) {
-    return { value: cleanNumber(row['Net Revenue CHF']), isEstimate: false };
+  // Nouveau concours ou nouvelle vue : le graphique repart sur sa métrique
+  // par défaut. Un simple rafraîchissement conserve le choix en cours.
+  const key = `${currentView}:${contest.id}`;
+  if (key !== lastRenderedKey) {
+    currentMetric = null;
+    lastRenderedKey = key;
   }
-  return { value: cleanNumber(row['Revenu Net Estimé CHF']), isEstimate: true };
-}
 
-function getTotalEntries(row) {
-  return hasRawValue(row, 'Total Entries') ? cleanNumber(row['Total Entries']) : cleanNumber(row['Charged Entries']);
-}
+  renderViewHead(contest, latest);
+  renderLastUpdate(latest ? latest.Timestamp : null);
 
-function renderKpis(latest, previous) {
-  const users = cleanNumber(latest['Charged Unique Users']);
-  const chargedEntries = cleanNumber(latest['Charged Entries']);
-  const entries = getTotalEntries(latest);
-  const revenueInfo = getRevenue(latest);
+  const empty = document.getElementById('empty-state');
+  empty.textContent = isOverall
+    ? 'Pas encore de données dans la feuille Overall.'
+    : 'Pas encore de données pour ce concours.';
+  empty.style.display = latest ? 'none' : '';
 
-  document.getElementById('kpi-users').textContent = NUM_FMT.format(users);
-  document.getElementById('kpi-charged-entries').textContent = NUM_FMT.format(chargedEntries);
-  document.getElementById('kpi-entries').textContent = NUM_FMT.format(entries);
-  document.getElementById('kpi-revenue').textContent = CHF_FMT.format(revenueInfo.value);
-  document.getElementById('kpi-revenue-estimate').style.display = revenueInfo.isEstimate ? 'block' : 'none';
+  renderKpis(isOverall ? overallKpiDefs() : gameKpiDefs(latest), latest, isOverall ? null : previous);
+  renderEvolution(rows);
 
-  if (previous) {
-    renderDelta('kpi-users-delta', users, cleanNumber(previous['Charged Unique Users']), n => NUM_FMT.format(n));
-    renderDelta('kpi-charged-entries-delta', chargedEntries, cleanNumber(previous['Charged Entries']), n => NUM_FMT.format(n));
-    renderDelta('kpi-entries-delta', entries, getTotalEntries(previous), n => NUM_FMT.format(n));
-    renderDelta('kpi-revenue-delta', revenueInfo.value, getRevenue(previous).value, n => CHF_FMT.format(n));
+  // Les conteneurs doivent être visibles pendant la création des graphiques,
+  // sinon Chart.js les dessine à une taille nulle. Ils sont re-masqués plus
+  // bas s'ils ne contiennent finalement aucun panneau.
+  setPanelVisible('secondary-grid', true);
+  setPanelVisible('two-col-grid', true);
+
+  if (isOverall) {
+    renderNetworkSplit(latest);
+    renderSmsPanel(latest);
+    renderSingleStat('panel-errors', 'stat-errors', num(latest, 'Error Count'), fmtNum);
+    renderSingleStat('panel-stops', 'stat-stops', num(latest, 'Stops Cumulés'), fmtNum);
+    ['panel-loyalty', 'panel-weekday', 'panel-hourly'].forEach(id => setPanelVisible(id, false));
   } else {
-    ['kpi-users-delta', 'kpi-charged-entries-delta', 'kpi-entries-delta', 'kpi-revenue-delta'].forEach(id => {
-      document.getElementById(id).textContent = '';
-    });
+    ['panel-network', 'panel-sms', 'panel-errors', 'panel-stops'].forEach(id => setPanelVisible(id, false));
+    renderLoyalty(latest);
+    renderWeekdayVolume(latest);
+    renderHourlyVolume(latest);
+  }
+
+  setPanelVisible('secondary-grid', ['panel-network', 'panel-sms', 'panel-errors', 'panel-stops'].some(isVisible));
+  setPanelVisible('two-col-grid', ['panel-loyalty', 'panel-weekday'].some(isVisible));
+}
+
+function formatDateTime(date, withYear) {
+  const opts = { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' };
+  if (withYear) opts.year = 'numeric';
+  return date.toLocaleString('fr-CH', opts);
+}
+
+function parseTimestamp(timestamp) {
+  if (!timestamp) return null;
+  const date = new Date(timestamp);
+  return isNaN(date.getTime()) ? null : date;
+}
+
+function renderViewHead(contest, latest) {
+  const isOverall = currentView === 'overall';
+  document.getElementById('view-title').textContent = isOverall ? 'Bilan global' : contest.label;
+  document.getElementById('back-button').style.display = isOverall && lastGameId ? '' : 'none';
+
+  const badge = document.getElementById('view-badge');
+  const cap = isOverall ? null : num(latest, 'Entry Cap');
+  if (cap !== null && cap > 0) {
+    badge.textContent = `Plafond atteint : ${fmtNum(cap)}`;
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+
+  const context = document.getElementById('view-context');
+  if (isOverall) {
+    const date = parseTimestamp(latest && latest.Timestamp);
+    context.textContent = 'Cumul de tous les jeux depuis le début.'
+      + (date ? ` Dernière mise à jour : ${formatDateTime(date, true)}` : '');
+    context.classList.toggle('stale', !date || Date.now() - date.getTime() > STALE_AFTER_MS);
+    context.style.display = '';
+  } else {
+    context.style.display = 'none';
   }
 }
 
 function renderLastUpdate(timestamp) {
-  const date = new Date(timestamp);
   const el = document.getElementById('last-update');
-  if (isNaN(date.getTime())) { el.textContent = ''; return; }
+  const date = parseTimestamp(timestamp);
+  if (!date) { el.textContent = ''; return; }
   const minsAgo = Math.round((Date.now() - date.getTime()) / 60000);
-  const timeStr = date.toLocaleString('fr-CH', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const timeStr = formatDateTime(date, false);
   el.textContent = minsAgo >= 0 && minsAgo < 180
     ? `Mise à jour il y a ${minsAgo} min (${timeStr})`
     : `Dernière donnée : ${timeStr}`;
 }
 
-function renderNetworkSplit(latest) {
-  const visible = hasRawValue(latest, 'Swisscom');
-  setPanelVisible('panel-network', visible);
-  if (!visible) return;
+// ---- KPI ----
 
-  const operators = [
-    { label: 'Swisscom', value: cleanNumber(latest['Swisscom']), color: COLORS.accent },
-    { label: 'Sunrise', value: cleanNumber(latest['Sunrise']), color: COLORS.accent2 },
-    { label: 'Salt', value: cleanNumber(latest['Salt']), color: COLORS.accent3 }
+function gameKpiDefs(latest) {
+  const defs = [
+    { label: 'Participants uniques', col: 'Charged Unique Users', fmt: fmtNum },
+    { label: 'Participations facturées', col: 'Charged Entries', fmt: fmtNum },
+    { label: 'Revenu brut', col: 'Outpayment CHF', fmt: fmtChf }
   ];
-  const total = operators.reduce((sum, o) => sum + o.value, 0) || 1;
-
-  const container = document.getElementById('network-split');
-  container.innerHTML = operators.map(o => {
-    const pct = (o.value / total) * 100;
-    return `
-      <div class="bar-row">
-        <span>${o.label}</span>
-        <div class="bar-track"><div class="bar-fill" style="width:${pct}%; background:${o.color};"></div></div>
-        <span class="bar-value">${pct.toFixed(0)}%</span>
-      </div>`;
-  }).join('');
+  const bonus = num(latest, 'Bonus Entries');
+  if (bonus !== null && bonus > 0) {
+    defs.push({ label: 'Entrées totales', col: 'Total Entries', fmt: fmtNum });
+  }
+  return defs;
 }
 
-function renderStats(latest) {
-  const smsVisible = hasRawValue(latest, 'Delivered Bulk');
-  setPanelVisible('panel-sms', smsVisible);
-  if (smsVisible) {
-    document.getElementById('stat-delivered').textContent = NUM_FMT.format(cleanNumber(latest['Delivered Bulk']));
-    document.getElementById('stat-bulkcost').textContent = CHF_FMT.format(cleanNumber(latest['Bulk Cost CHF']));
-  }
-
-  document.getElementById('stat-cap').textContent = NUM_FMT.format(cleanNumber(latest['Entry Cap']));
-
-  const errorsVisible = hasRawValue(latest, 'Error Count');
-  setPanelVisible('stat-errors-row', errorsVisible);
-  if (errorsVisible) {
-    document.getElementById('stat-errors').textContent = NUM_FMT.format(cleanNumber(latest['Error Count']));
-  }
+function overallKpiDefs() {
+  return [
+    { label: 'Participants uniques', col: 'Charged Unique Users', fmt: fmtNum },
+    { label: 'Participations facturées', col: 'Charged Entries', fmt: fmtNum },
+    { label: 'Revenu brut', col: 'Outpayment CHF', fmt: fmtChf },
+    { label: 'Revenu net réel', col: 'Net Revenue CHF', fmt: fmtChf }
+  ];
 }
 
-function renderEvolutionChart(rows, metric) {
-  const labels = rows.map(r => {
-    const d = new Date(r.Timestamp);
-    if (isNaN(d.getTime())) return '';
-    return d.toLocaleString('fr-CH', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+function formatDelta(latestVal, prevVal, fmt) {
+  const diff = latestVal - prevVal;
+  const formattedAbs = fmt(Math.abs(diff));
+  if (!/[1-9]/.test(formattedAbs)) return { text: 'stable / h', positive: false };
+  return { text: `${diff > 0 ? '▲ +' : '▼ '}${formattedAbs} / h`, positive: diff > 0 };
+}
+
+// previous = null : pas de variation "/ h" (vue Bilan global, ou une seule ligne).
+function renderKpis(defs, latest, previous) {
+  const row = document.getElementById('kpi-row');
+  const items = defs
+    .map(d => Object.assign({}, d, { value: num(latest, d.col) }))
+    .filter(d => d.value !== null);
+
+  row.innerHTML = '';
+  row.style.display = items.length ? '' : 'none';
+  row.style.setProperty('--kpi-cols', String(items.length || 1));
+
+  items.forEach(d => {
+    const kpi = el('div', 'kpi');
+    kpi.append(el('div', 'label', d.label), el('div', 'value display', d.fmt(d.value)));
+    // Variation affichée seulement si les deux dernières lignes ont une vraie valeur.
+    const prev = num(previous, d.col);
+    if (prev !== null) {
+      const delta = formatDelta(d.value, prev, d.fmt);
+      kpi.append(el('div', 'delta' + (delta.positive ? ' positive' : ''), delta.text));
+    }
+    row.append(kpi);
   });
-  const data = rows.map(r => metric === 'Total Entries' ? getTotalEntries(r) : cleanNumber(r[metric]));
+}
 
-  const formatter = METRIC_FORMATTERS[metric] || (n => NUM_FMT.format(n));
-  const latestValue = data.length ? data[data.length - 1] : 0;
-  document.getElementById('evolution-current-value').textContent = formatter(latestValue);
+// ---- Graphique d'évolution ----
+
+function availableMetrics(rows) {
+  const latest = rows[rows.length - 1];
+  return currentMetricsConfig().list.filter(m => {
+    if (m.onlyIfPositive) {
+      const v = num(latest, m.col);
+      return v !== null && v > 0;
+    }
+    return rows.some(r => num(r, m.col) !== null);
+  });
+}
+
+function renderEvolution(rows) {
+  const metrics = rows.length ? availableMetrics(rows) : [];
+  setPanelVisible('panel-evolution', metrics.length > 0);
+  if (metrics.length === 0) {
+    if (evolutionChart) { evolutionChart.destroy(); evolutionChart = null; }
+    return;
+  }
+
+  const cfg = currentMetricsConfig();
+  if (!metrics.some(m => m.col === currentMetric)) {
+    currentMetric = metrics.some(m => m.col === cfg.default) ? cfg.default : metrics[0].col;
+  }
+  const metric = metrics.find(m => m.col === currentMetric);
+
+  const toggle = document.getElementById('metric-toggle');
+  toggle.innerHTML = '';
+  metrics.forEach(m => {
+    const btn = el('button', m.col === currentMetric ? 'active' : '', m.label);
+    btn.type = 'button';
+    btn.dataset.metric = m.col;
+    toggle.append(btn);
+  });
+
+  const labels = rows.map(r => {
+    const d = parseTimestamp(r.Timestamp);
+    return d ? formatDateTime(d, false) : '';
+  });
+  const data = rows.map(r => num(r, metric.col));
+
+  const lastValue = [...data].reverse().find(v => v !== null);
+  document.getElementById('evolution-current-value').textContent =
+    lastValue === undefined ? '' : metric.fmt(lastValue);
 
   const ctx = document.getElementById('evolution-chart').getContext('2d');
   if (evolutionChart) evolutionChart.destroy();
@@ -513,12 +680,13 @@ function renderEvolutionChart(rows, metric) {
     data: {
       labels,
       datasets: [{
-        label: METRIC_LABELS[metric],
+        label: metric.label,
         data,
         borderColor: COLORS.accent,
         backgroundColor: 'rgba(242, 169, 60, 0.12)',
         fill: true,
         tension: 0.25,
+        spanGaps: true,
         pointRadius: 0,
         pointHoverRadius: 4,
         borderWidth: 2
@@ -528,14 +696,19 @@ function renderEvolutionChart(rows, metric) {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: { label: item => `${metric.label} : ${metric.fmt(item.parsed.y)}` }
+        }
+      },
       scales: {
         x: {
           ticks: { color: '#868c99', maxTicksLimit: 8, font: { family: 'Inter', size: 11 } },
           grid: { color: '#2a2f3a' }
         },
         y: {
-          ticks: { color: '#868c99', font: { family: 'Inter', size: 11 } },
+          ticks: { color: '#868c99', font: { family: 'Inter', size: 11 }, callback: v => fmtNum(v) },
           grid: { color: '#2a2f3a' }
         }
       }
@@ -543,19 +716,67 @@ function renderEvolutionChart(rows, metric) {
   });
 }
 
+function setupMetricToggle() {
+  document.getElementById('metric-toggle').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-metric]');
+    if (!btn || btn.dataset.metric === currentMetric) return;
+    currentMetric = btn.dataset.metric;
+    if (currentRows.length) renderEvolution(currentRows);
+  });
+}
+
+// ---- Panneaux du Bilan global ----
+
+function renderNetworkSplit(latest) {
+  const operators = [
+    { label: 'Swisscom', value: num(latest, 'Swisscom'), color: COLORS.accent },
+    { label: 'Sunrise', value: num(latest, 'Sunrise'), color: COLORS.accent2 },
+    { label: 'Salt', value: num(latest, 'Salt'), color: COLORS.accent3 }
+  ].filter(o => o.value !== null);
+  const total = operators.reduce((sum, o) => sum + o.value, 0);
+  setPanelVisible('panel-network', total > 0);
+  if (total <= 0) return;
+
+  const container = document.getElementById('network-split');
+  container.innerHTML = '';
+  operators.forEach(o => {
+    const pct = (o.value / total) * 100;
+    const row = el('div', 'bar-row');
+    const track = el('div', 'bar-track');
+    const fill = el('div', 'bar-fill');
+    fill.style.width = `${pct}%`;
+    fill.style.background = o.color;
+    track.append(fill);
+    row.append(el('span', '', o.label), track, el('span', 'bar-value', `${pct.toFixed(0)}%`));
+    container.append(row);
+  });
+}
+
+function renderSmsPanel(latest) {
+  const delivered = num(latest, 'Delivered Bulk');
+  const cost = firstNum(latest, ['Total Bulk Cost CHF', 'Bulk Cost CHF']);
+  setPanelVisible('stat-delivered-row', delivered !== null);
+  setPanelVisible('stat-bulkcost-row', cost !== null);
+  setPanelVisible('panel-sms', delivered !== null || cost !== null);
+  if (delivered !== null) document.getElementById('stat-delivered').textContent = fmtNum(delivered);
+  if (cost !== null) document.getElementById('stat-bulkcost').textContent = fmtChf(cost);
+}
+
+function renderSingleStat(panelId, valueId, value, fmt) {
+  setPanelVisible(panelId, value !== null);
+  if (value !== null) document.getElementById(valueId).textContent = fmt(value);
+}
+
+// ---- Panneaux de la vue Jeu ----
+
 function renderLoyalty(latest) {
-  const visible = hasRawValue(latest, 'Participants 1x');
-  setPanelVisible('panel-loyalty', visible);
-  if (!visible) return;
-
-  const once = cleanNumber(latest['Participants 1x']);
-  const multi = cleanNumber(latest['Participants 2x+']);
-  const total = once + multi || 1;
-
   const segments = [
-    { label: '1 participation', value: once, color: COLORS.accent },
-    { label: '2+ participations', value: multi, color: COLORS.accent2 }
-  ];
+    { label: '1 participation', value: num(latest, 'Participants 1x'), color: COLORS.accent },
+    { label: '2+ participations', value: num(latest, 'Participants 2x+'), color: COLORS.accent2 }
+  ].filter(s => s.value !== null);
+  const total = segments.reduce((sum, s) => sum + s.value, 0);
+  setPanelVisible('panel-loyalty', total > 0);
+  if (total <= 0) return;
 
   const ctx = document.getElementById('loyalty-chart').getContext('2d');
   if (loyaltyChart) loyaltyChart.destroy();
@@ -578,15 +799,15 @@ function renderLoyalty(latest) {
   });
 
   const legend = document.getElementById('loyalty-legend');
-  legend.innerHTML = segments.map(s => {
+  legend.innerHTML = '';
+  segments.forEach(s => {
+    const row = el('div', 'legend-row');
+    const dot = el('span', 'legend-dot');
+    dot.style.background = s.color;
     const pct = (s.value / total) * 100;
-    return `
-      <div class="legend-row">
-        <span class="legend-dot" style="background:${s.color};"></span>
-        <span>${s.label}</span>
-        <span class="legend-value">${NUM_FMT.format(s.value)} (${pct.toFixed(0)}%)</span>
-      </div>`;
-  }).join('');
+    row.append(dot, el('span', '', s.label), el('span', 'legend-value', `${fmtNum(s.value)} (${pct.toFixed(0)}%)`));
+    legend.append(row);
+  });
 }
 
 function renderBarChart(canvasId, existingChart, labels, data) {
@@ -606,7 +827,10 @@ function renderBarChart(canvasId, existingChart, labels, data) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: item => `${fmtNum(item.parsed.y)} entrées` } }
+      },
       scales: {
         x: {
           ticks: { color: '#868c99', font: { family: 'Inter', size: 11 } },
@@ -621,44 +845,31 @@ function renderBarChart(canvasId, existingChart, labels, data) {
   });
 }
 
-function renderWeekdayVolume(latest) {
-  const visible = WEEKDAY_COLUMNS.some(col => hasRawValue(latest, col));
-  setPanelVisible('panel-weekday', visible);
-  if (!visible) return;
+// Panneau affiché seulement si au moins une colonne a une valeur > 0.
+function renderVolumePanel(panelId, canvasId, existingChart, columns, labels, latest) {
+  const data = columns.map(col => num(latest, col));
+  const visible = data.some(v => v !== null && v > 0);
+  setPanelVisible(panelId, visible);
+  if (!visible) return existingChart;
+  return renderBarChart(canvasId, existingChart, labels, data);
+}
 
-  const data = WEEKDAY_COLUMNS.map(col => cleanNumber(latest[col]));
-  weekdayChart = renderBarChart('weekday-chart', weekdayChart, WEEKDAY_LABELS, data);
+function renderWeekdayVolume(latest) {
+  weekdayChart = renderVolumePanel('panel-weekday', 'weekday-chart', weekdayChart, WEEKDAY_COLUMNS, WEEKDAY_LABELS, latest);
 }
 
 function renderHourlyVolume(latest) {
-  const visible = hasRawValue(latest, HOUR_COLUMNS[0]);
-  setPanelVisible('panel-hourly', visible);
-  if (!visible) return;
-
-  const data = HOUR_COLUMNS.map(col => cleanNumber(latest[col]));
-  hourlyChart = renderBarChart('hourly-chart', hourlyChart, HOUR_LABELS, data);
+  hourlyChart = renderVolumePanel('panel-hourly', 'hourly-chart', hourlyChart, HOUR_COLUMNS, HOUR_LABELS, latest);
 }
 
-function updateGridContainerVisibility() {
-  const loyaltyVisible = document.getElementById('panel-loyalty').style.display !== 'none';
-  const weekdayVisible = document.getElementById('panel-weekday').style.display !== 'none';
-  setPanelVisible('two-col-grid', loyaltyVisible || weekdayVisible);
-}
-
-function setupMetricToggle() {
-  const buttons = document.querySelectorAll('#metric-toggle button');
-  buttons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      buttons.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      currentMetric = btn.dataset.metric;
-      if (currentRows.length) renderEvolutionChart(currentRows, currentMetric);
-    });
-  });
+function setupViewSwitch() {
+  document.getElementById('overall-button').addEventListener('click', showOverallView);
+  document.getElementById('back-button').addEventListener('click', () => showGameView(lastGameId));
 }
 
 function startDashboard() {
   setupMetricToggle();
+  setupViewSwitch();
   setupManualRefresh();
   setupFullscreenToggle();
   discoverContests();

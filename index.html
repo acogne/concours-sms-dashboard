@@ -85,12 +85,68 @@
     font-family: 'Inter', sans-serif;
     font-size: 14px;
     font-weight: 500;
-    margin-left: auto;
     cursor: pointer;
   }
   select#contest-select:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
+  }
+
+  /* Reste présent (même vide en vue Bilan global) pour garder la date et
+     les boutons d'action alignés à droite. */
+  .header-nav {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-left: auto;
+  }
+
+  /* Bouton texte discret : "Bilan global" et "← Retour aux jeux". */
+  .text-btn {
+    background: transparent;
+    border: none;
+    padding: 4px 2px;
+    color: var(--text-muted);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-color: var(--border);
+    text-underline-offset: 3px;
+  }
+  .text-btn:hover { color: var(--text); text-decoration-color: var(--text-muted); }
+  .text-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .view-head { margin-bottom: 20px; }
+  .view-head #back-button { margin-bottom: 8px; }
+  .view-head h1 {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-size: 28px;
+    line-height: 1.1;
+    margin: 0;
+  }
+  .badge {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 3px 8px;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .view-context {
+    margin: 8px 0 0;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .view-context.stale { color: var(--text-muted); }
+
+  .empty-state {
+    color: var(--text-muted);
+    font-size: 14px;
+    margin: 0 0 20px;
   }
 
   #last-update {
@@ -156,6 +212,8 @@
     gap: 12px;
     padding: 14px 40px;
   }
+  body.is-fullscreen .view-head,
+  body.is-fullscreen .empty-state { flex: 0 0 auto; margin-bottom: 0; }
   body.is-fullscreen .kpi-row { flex: 0 0 auto; margin-bottom: 0; }
   body.is-fullscreen .kpi { padding: 16px 20px; }
   body.is-fullscreen .kpi .label { font-size: 13px; margin-bottom: 6px; }
@@ -186,7 +244,8 @@
 
   .kpi-row {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    /* --kpi-cols est posé par renderKpis() selon le nombre de KPI affichés. */
+    grid-template-columns: repeat(var(--kpi-cols, 4), minmax(0, 1fr));
     gap: 1px;
     background: var(--border);
     border: 1px solid var(--border);
@@ -428,7 +487,8 @@
     .secondary-grid { grid-template-columns: 1fr; }
     .two-col-grid { grid-template-columns: 1fr; }
     header { gap: 12px; }
-    select#contest-select { margin-left: 0; width: 100%; }
+    .header-nav { margin-left: 0; width: 100%; }
+    select#contest-select { flex: 1; min-width: 0; }
   }
 </style>
 </head>
@@ -450,7 +510,10 @@
 <header>
   <div class="on-air"><span class="dot"></span>ON AIR</div>
   <span class="station" id="station-name"></span>
-  <select id="contest-select" aria-label="Choisir un concours"></select>
+  <div class="header-nav">
+    <select id="contest-select" aria-label="Choisir un concours"></select>
+    <button id="overall-button" class="text-btn" type="button" style="display:none;">Bilan global</button>
+  </div>
   <span id="last-update"></span>
   <div class="header-actions">
     <button id="refresh-button" class="icon-btn" type="button" title="Rafraîchir les données" aria-label="Rafraîchir les données">
@@ -464,88 +527,75 @@
 
 <main id="dashboard-content">
 
-  <div class="kpi-row">
-    <div class="kpi">
-      <div class="label">Participants uniques</div>
-      <div class="value display" id="kpi-users">—</div>
-      <div class="delta" id="kpi-users-delta"></div>
-    </div>
-    <div class="kpi">
-      <div class="label">Participations facturées</div>
-      <div class="value display" id="kpi-charged-entries">—</div>
-      <div class="delta" id="kpi-charged-entries-delta"></div>
-    </div>
-    <div class="kpi">
-      <div class="label">Entrées totales</div>
-      <div class="value display" id="kpi-entries">—</div>
-      <div class="delta" id="kpi-entries-delta"></div>
-    </div>
-    <div class="kpi">
-      <div class="label">Revenu net</div>
-      <div class="value display" id="kpi-revenue">—</div>
-      <div class="delta" id="kpi-revenue-delta"></div>
-      <div class="delta" id="kpi-revenue-estimate" style="display:none;">(estimation)</div>
-    </div>
+  <div class="view-head">
+    <button id="back-button" class="text-btn" type="button" style="display:none;">← Retour aux jeux</button>
+    <h1 id="view-title"></h1>
+    <span id="view-badge" class="badge" style="display:none;"></span>
+    <p id="view-context" class="view-context" style="display:none;"></p>
   </div>
 
-  <div class="panel">
+  <p id="empty-state" class="empty-state" style="display:none;"></p>
+
+  <div class="kpi-row" id="kpi-row" style="display:none;"></div>
+
+  <div class="panel" id="panel-evolution" style="display:none;">
     <div class="panel-header">
       <h2>Évolution</h2>
       <span id="evolution-current-value" class="evolution-value"></span>
-      <div class="metric-toggle" id="metric-toggle">
-        <button data-metric="Total Entries" class="active">Entrées</button>
-        <button data-metric="Charged Unique Users">Participants</button>
-        <button data-metric="Net Revenue CHF">Revenu net</button>
-        <button data-metric="Stops Cumulés">Stops</button>
-      </div>
+      <div class="metric-toggle" id="metric-toggle"></div>
     </div>
     <div class="panel-body" id="evolution-panel-body">
       <canvas id="evolution-chart" height="90"></canvas>
     </div>
   </div>
 
-  <div class="secondary-grid" id="secondary-grid">
-    <div class="panel" id="panel-network">
+  <div class="secondary-grid" id="secondary-grid" style="display:none;">
+    <div class="panel" id="panel-network" style="display:none;">
       <div class="panel-header"><h2>Répartition réseau</h2></div>
       <div class="panel-body" id="network-split"></div>
     </div>
-    <div class="panel" id="panel-sms">
+    <div class="panel" id="panel-sms" style="display:none;">
       <div class="panel-header"><h2>SMS sortants</h2></div>
       <div class="panel-body">
-        <div class="stat-row">
+        <div class="stat-row" id="stat-delivered-row">
           <span class="stat-label">Livrés</span>
-          <span class="stat-value display" id="stat-delivered">—</span>
+          <span class="stat-value display" id="stat-delivered"></span>
         </div>
-        <div class="stat-row">
+        <div class="stat-row" id="stat-bulkcost-row">
           <span class="stat-label">Coût total</span>
-          <span class="stat-value display" id="stat-bulkcost">—</span>
+          <span class="stat-value display" id="stat-bulkcost"></span>
         </div>
       </div>
     </div>
-    <div class="panel">
-      <div class="panel-header"><h2>Plafond &amp; erreurs</h2></div>
+    <div class="panel" id="panel-errors" style="display:none;">
+      <div class="panel-header"><h2>Erreurs mot-clé</h2></div>
       <div class="panel-body">
         <div class="stat-row">
-          <span class="stat-label">Plafond atteint (MSISDN)</span>
-          <span class="stat-value display" id="stat-cap">—</span>
+          <span class="stat-label">Messages non reconnus</span>
+          <span class="stat-value display" id="stat-errors"></span>
         </div>
-        <div class="stat-row" id="stat-errors-row">
-          <span class="stat-label">Erreurs mot-clé</span>
-          <span class="stat-value display" id="stat-errors">—</span>
+      </div>
+    </div>
+    <div class="panel" id="panel-stops" style="display:none;">
+      <div class="panel-header"><h2>Stops cumulés</h2></div>
+      <div class="panel-body">
+        <div class="stat-row">
+          <span class="stat-label">Désinscriptions</span>
+          <span class="stat-value display" id="stat-stops"></span>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="two-col-grid" id="two-col-grid">
-    <div class="panel" id="panel-loyalty">
+  <div class="two-col-grid" id="two-col-grid" style="display:none;">
+    <div class="panel" id="panel-loyalty" style="display:none;">
       <div class="panel-header"><h2>Fidélité participants</h2></div>
       <div class="panel-body loyalty-body">
         <div class="loyalty-chart"><canvas id="loyalty-chart" height="140"></canvas></div>
         <div class="loyalty-legend" id="loyalty-legend"></div>
       </div>
     </div>
-    <div class="panel" id="panel-weekday">
+    <div class="panel" id="panel-weekday" style="display:none;">
       <div class="panel-header"><h2>Volume par jour de la semaine</h2></div>
       <div class="panel-body" id="weekday-panel-body">
         <canvas id="weekday-chart" height="140"></canvas>
@@ -553,7 +603,7 @@
     </div>
   </div>
 
-  <div class="panel" id="panel-hourly">
+  <div class="panel" id="panel-hourly" style="display:none;">
     <div class="panel-header"><h2>Volume par heure de la journée</h2></div>
     <div class="panel-body" id="hourly-panel-body">
       <canvas id="hourly-chart" height="140"></canvas>
