@@ -37,11 +37,14 @@ const fmtChf = n => CHF_FMT.format(n);
 
 // Boutons du graphique d'évolution, par vue, dans l'ordre d'affichage.
 // Le bouton "Stops" n'apparaît que si la dernière valeur est > 0.
+// `get` (optionnel) calcule la valeur d'une ligne ; sinon on lit la colonne `col`.
+const NET_REVENUE_KEY = 'revenu-net-calcule';
 const GAME_METRICS = {
-  default: 'Outpayment CHF',
+  default: NET_REVENUE_KEY,
   list: [
     { col: 'Charged Entries', label: 'Participations', fmt: fmtNum },
     { col: 'Charged Unique Users', label: 'Participants', fmt: fmtNum },
+    { col: NET_REVENUE_KEY, label: 'Revenu net', fmt: fmtChf, get: netRevenueValue },
     { col: 'Outpayment CHF', label: 'Revenu brut', fmt: fmtChf },
     { col: 'Stops Cumulés', label: 'Stops', fmt: fmtNum, onlyIfPositive: true }
   ]
@@ -571,14 +574,63 @@ function renderLastUpdate(timestamp) {
     : `Dernière donnée : ${timeStr}`;
 }
 
+// ---- Revenu net (vue Jeu) ----
+
+// Revenu net d'une ligne, par ordre de priorité :
+//  a. "Net Revenue CHF" renseigné et > 0 → valeur réelle ;
+//  b. sinon "Revenu Net Estimé CHF" renseigné et non nul → estimation du Sheet ;
+//  c. sinon Outpayment CHF − Charged Entries × bulkCostPerEntryChf → estimation calculée ;
+//  d. sinon null.
+function netRevenue(row) {
+  const real = num(row, 'Net Revenue CHF');
+  if (real !== null && real > 0) return { value: real, estimate: false };
+
+  const sheetEstimate = num(row, 'Revenu Net Estimé CHF');
+  if (sheetEstimate !== null && sheetEstimate !== 0) return { value: sheetEstimate, estimate: true };
+
+  const gross = num(row, 'Outpayment CHF');
+  const entries = num(row, 'Charged Entries');
+  const costPerEntry = DASHBOARD_CONFIG.bulkCostPerEntryChf;
+  if (gross !== null && entries !== null && typeof costPerEntry === 'number' && isFinite(costPerEntry)) {
+    return { value: Math.round((gross - entries * costPerEntry) * 100) / 100, estimate: true };
+  }
+  return null;
+}
+
+function netRevenueValue(row) {
+  const net = netRevenue(row);
+  return net ? net.value : null;
+}
+
+// Valeur d'une métrique ou d'un KPI pour une ligne : calculée si `get`, sinon lue dans `col`.
+function metricValue(def, row) {
+  if (!row) return null;
+  return def.get ? def.get(row) : num(row, def.col);
+}
+
 // ---- KPI ----
 
 function gameKpiDefs(latest) {
   const defs = [
     { label: 'Participants uniques', col: 'Charged Unique Users', fmt: fmtNum },
-    { label: 'Participations facturées', col: 'Charged Entries', fmt: fmtNum },
-    { label: 'Revenu brut', col: 'Outpayment CHF', fmt: fmtChf }
+    { label: 'Participations facturées', col: 'Charged Entries', fmt: fmtNum }
   ];
+
+  // 3e KPI : revenu net (réel ou estimé), avec le brut en rappel ; à défaut, le brut seul.
+  const net = netRevenue(latest);
+  const gross = num(latest, 'Outpayment CHF');
+  if (net) {
+    defs.push({
+      label: net.estimate ? 'Revenu net estimé' : 'Revenu net',
+      note: net.estimate ? 'estimation' : null,
+      get: netRevenueValue,
+      fmt: fmtChf,
+      sub: gross !== null ? `brut : ${fmtChf(gross)}` : null
+    });
+  } else {
+    defs.push({ label: 'Revenu brut', col: 'Outpayment CHF', fmt: fmtChf });
+  }
+
   const bonus = num(latest, 'Bonus Entries');
   if (bonus !== null && bonus > 0) {
     defs.push({ label: 'Entrées totales', col: 'Total Entries', fmt: fmtNum });
@@ -606,7 +658,7 @@ function formatDelta(latestVal, prevVal, fmt) {
 function renderKpis(defs, latest, previous) {
   const row = document.getElementById('kpi-row');
   const items = defs
-    .map(d => Object.assign({}, d, { value: num(latest, d.col) }))
+    .map(d => Object.assign({}, d, { value: metricValue(d, latest) }))
     .filter(d => d.value !== null);
 
   row.innerHTML = '';
@@ -615,9 +667,12 @@ function renderKpis(defs, latest, previous) {
 
   items.forEach(d => {
     const kpi = el('div', 'kpi');
-    kpi.append(el('div', 'label', d.label), el('div', 'value display', d.fmt(d.value)));
+    kpi.append(el('div', 'label', d.label));
+    if (d.note) kpi.append(el('div', 'note', d.note));
+    kpi.append(el('div', 'value display', d.fmt(d.value)));
+    if (d.sub) kpi.append(el('div', 'sub', d.sub));
     // Variation affichée seulement si les deux dernières lignes ont une vraie valeur.
-    const prev = num(previous, d.col);
+    const prev = metricValue(d, previous);
     if (prev !== null) {
       const delta = formatDelta(d.value, prev, d.fmt);
       kpi.append(el('div', 'delta' + (delta.positive ? ' positive' : ''), delta.text));
@@ -632,10 +687,10 @@ function availableMetrics(rows) {
   const latest = rows[rows.length - 1];
   return currentMetricsConfig().list.filter(m => {
     if (m.onlyIfPositive) {
-      const v = num(latest, m.col);
+      const v = metricValue(m, latest);
       return v !== null && v > 0;
     }
-    return rows.some(r => num(r, m.col) !== null);
+    return rows.some(r => metricValue(m, r) !== null);
   });
 }
 
@@ -666,7 +721,7 @@ function renderEvolution(rows) {
     const d = parseTimestamp(r.Timestamp);
     return d ? formatDateTime(d, false) : '';
   });
-  const data = rows.map(r => num(r, metric.col));
+  const data = rows.map(r => metricValue(metric, r));
 
   const lastValue = [...data].reverse().find(v => v !== null);
   document.getElementById('evolution-current-value').textContent =
