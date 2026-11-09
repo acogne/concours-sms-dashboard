@@ -873,8 +873,44 @@ function renderGoal(rows) {
     deadlineEl.style.display = 'none';
   }
 
+  renderGoalEta({ reached, ended, end, pace, remaining, lastDate: lastDate || new Date(now), statusKey });
+
   document.getElementById('goal-pace').textContent = goalPaceText({ reached, ended, end, pace, projected, projectedRatio, remaining, hoursLeft });
   setPanelVisible('goal-pace', document.getElementById('goal-pace').textContent !== '');
+}
+
+// Date estimée d'atteinte de l'objectif au rythme des dernières 24 h,
+// arrondie à l'heure (plus précis serait trompeur).
+const ETA_MAX_DAYS = 365;
+function renderGoalEta({ reached, ended, end, pace, remaining, lastDate, statusKey }) {
+  const etaEl = document.getElementById('goal-eta');
+  const hide = () => { etaEl.style.display = 'none'; };
+  if (reached || ended || pace === null) return hide();
+
+  if (pace <= 0) {
+    etaEl.textContent = 'Date d’atteinte estimée : impossible à estimer, aucune progression sur les dernières 24 h';
+    etaEl.dataset.status = 'late';
+    etaEl.style.display = '';
+    return;
+  }
+
+  const hours = remaining / pace;
+  if (hours > ETA_MAX_DAYS * 24) return hide();
+  const eta = new Date(lastDate.getTime() + hours * 3600000);
+  eta.setMinutes(eta.getMinutes() >= 30 ? 60 : 0, 0, 0);
+
+  const datePart = eta.toLocaleDateString('fr-CH', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  let text = `Date d’atteinte estimée : ${datePart} vers ${eta.getHours()}h`;
+  if (end && eta.getTime() > end.getTime()) {
+    const late = formatDuration((eta.getTime() - end.getTime()) / 3600000);
+    text += ` — ${late} après la fin du jeu`;
+  } else if (end) {
+    const margin = formatDuration((end.getTime() - eta.getTime()) / 3600000);
+    text += ` — ${margin} avant la fin du jeu`;
+  }
+  etaEl.textContent = text;
+  etaEl.dataset.status = statusKey;
+  etaEl.style.display = '';
 }
 
 function goalPaceText({ reached, ended, end, pace, projected, projectedRatio, remaining, hoursLeft }) {

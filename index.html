@@ -367,6 +367,14 @@
   }
   .goal-status[data-status="ok"] { color: var(--positive); }
   .goal-status[data-status="late"] { color: var(--negative); }
+  .goal-eta {
+    margin: 12px 0 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .goal-eta[data-status="ok"] { color: var(--positive); }
+  .goal-eta[data-status="late"] { color: var(--negative); }
   .goal-deadline {
     margin: 0 0 12px;
     font-size: 13px;
@@ -674,6 +682,7 @@
         <span><strong class="display" id="goal-current"></strong> sur <span id="goal-target"></span><em id="goal-estimate" class="goal-estimate" style="display:none;"> · estimation</em></span>
         <span id="goal-remaining" class="goal-remaining display"></span>
       </div>
+      <p id="goal-eta" class="goal-eta" style="display:none;"></p>
       <p id="goal-pace" class="goal-pace" style="display:none;"></p>
     </div>
   </div>
