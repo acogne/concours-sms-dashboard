@@ -221,6 +221,8 @@
   body.is-fullscreen .kpi .delta { font-size: 13px; margin-top: 4px; }
 
   body.is-fullscreen main > .panel { flex: 1.6 1 0; min-height: 0; }
+  body.is-fullscreen main > .goal-panel { flex: 0 0 auto; }
+  body.is-fullscreen .goal-panel .panel-body { flex: 0 0 auto; }
   body.is-fullscreen .secondary-grid { flex: 0.8 1 0; min-height: 0; margin-bottom: 0; }
   body.is-fullscreen .two-col-grid { flex: 1.2 1 0; min-height: 0; margin-bottom: 0; }
 
@@ -337,6 +339,67 @@
   }
 
   .panel-body { padding: 20px; min-width: 0; }
+
+  .goal-pct {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-size: 24px;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .goal-pct.reached { color: var(--positive); }
+  .goal-track {
+    position: relative;
+    height: 16px;
+    background: var(--surface-2);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .goal-fill {
+    height: 100%;
+    width: 0;
+    background: var(--accent);
+    border-radius: var(--radius);
+    transition: width 0.6s ease;
+  }
+  .goal-fill.reached { background: var(--positive); }
+  .goal-tick {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--bg);
+    opacity: 0.6;
+  }
+  .goal-figures {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .goal-figures strong {
+    font-size: 22px;
+    color: var(--text);
+    font-weight: 700;
+  }
+  .goal-estimate { font-size: 11px; }
+  .goal-remaining {
+    font-size: 22px;
+    color: var(--text);
+  }
+  .goal-remaining.reached { color: var(--positive); }
+  .goal-pace {
+    margin: 10px 0 0;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .goal-fill { transition: none; }
+  }
 
   canvas { display: block; max-width: 100%; }
 
@@ -548,6 +611,26 @@
   <p id="empty-state" class="empty-state" style="display:none;"></p>
 
   <div class="kpi-row" id="kpi-row" style="display:none;"></div>
+
+  <div class="panel goal-panel" id="panel-goal" style="display:none;">
+    <div class="panel-header">
+      <h2>Objectif de revenu net</h2>
+      <span id="goal-pct" class="goal-pct"></span>
+    </div>
+    <div class="panel-body">
+      <div class="goal-track" id="goal-track" role="progressbar" aria-label="Progression vers l'objectif" aria-valuemin="0" aria-valuemax="100">
+        <div class="goal-fill" id="goal-fill"></div>
+        <span class="goal-tick" style="left:25%"></span>
+        <span class="goal-tick" style="left:50%"></span>
+        <span class="goal-tick" style="left:75%"></span>
+      </div>
+      <div class="goal-figures">
+        <span><strong class="display" id="goal-current"></strong> sur <span id="goal-target"></span><em id="goal-estimate" class="goal-estimate" style="display:none;"> · estimation</em></span>
+        <span id="goal-remaining" class="goal-remaining display"></span>
+      </div>
+      <p id="goal-pace" class="goal-pace" style="display:none;"></p>
+    </div>
+  </div>
 
   <div class="panel" id="panel-evolution" style="display:none;">
     <div class="panel-header">

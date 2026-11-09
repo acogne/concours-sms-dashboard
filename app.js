@@ -25,6 +25,12 @@ let accessToken = null;
 let tokenClient = null;
 let hasStartedDashboard = false;
 let staleReloadTimer = null;
+let currentGoal = null;
+
+// Colonne (AZ) contenant l'objectif de revenu net du concours, en CHF.
+const GOAL_COL = 'Objectif CHF';
+// Fenêtre utilisée pour estimer le rythme actuel de revenu.
+const PACE_WINDOW_HOURS = 24;
 
 const AUTO_REFRESH_START = { hour: 9, minute: 10 };
 const AUTO_REFRESH_END = { hour: 20, minute: 10 };
@@ -39,8 +45,10 @@ const fmtChf = n => CHF_FMT.format(n);
 // Le bouton "Stops" n'apparaît que si la dernière valeur est > 0.
 // `get` (optionnel) calcule la valeur d'une ligne ; sinon on lit la colonne `col`.
 const NET_REVENUE_KEY = 'revenu-net-calcule';
+// `goalMetric` : métrique sur laquelle la ligne d'objectif est tracée.
 const GAME_METRICS = {
   default: NET_REVENUE_KEY,
+  goalMetric: NET_REVENUE_KEY,
   list: [
     { col: 'Charged Entries', label: 'Participations', fmt: fmtNum },
     { col: 'Charged Unique Users', label: 'Participants', fmt: fmtNum },
@@ -51,6 +59,7 @@ const GAME_METRICS = {
 };
 const OVERALL_METRICS = {
   default: 'Net Revenue CHF',
+  goalMetric: 'Net Revenue CHF',
   list: [
     { col: 'Charged Entries', label: 'Participations', fmt: fmtNum },
     { col: 'Outpayment CHF', label: 'Revenu brut', fmt: fmtChf },
@@ -436,11 +445,15 @@ function loadContest(contestId) {
         return;
       }
       const header = values[0];
-      const rows = values.slice(1).map(row => {
+      const allRows = values.slice(1).map(row => {
         const obj = {};
         header.forEach((key, i) => { obj[key] = row[i]; });
         return obj;
-      }).filter(r => r.Timestamp);
+      });
+      const rows = allRows.filter(r => r.Timestamp);
+      // L'objectif peut être saisi sur une ligne sans Timestamp (ex. avant
+      // le premier envoi de Make.com) : on le cherche donc sur toutes les lignes.
+      currentGoal = readGoal(allRows);
 
       // Concours pas encore démarré (onglet créé, mais aucune ligne de
       // données envoyée par Make.com) : renderDashboard() affiche alors
@@ -500,6 +513,7 @@ function renderDashboard(contest, rows) {
   empty.style.display = latest ? 'none' : '';
 
   renderKpis(isOverall ? overallKpiDefs() : gameKpiDefs(latest), latest, isOverall ? null : previous);
+  renderGoal(rows);
   renderEvolution(rows);
 
   // Les conteneurs doivent être visibles pendant la création des graphiques,
@@ -681,6 +695,98 @@ function renderKpis(defs, latest, previous) {
   });
 }
 
+// ---- Objectif de revenu net ----
+
+// Dernière valeur numérique > 0 de la colonne objectif, ou null.
+function readGoal(rows) {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const v = num(rows[i], GOAL_COL);
+    if (v !== null && v > 0) return v;
+  }
+  return null;
+}
+
+// Revenu net d'une ligne, selon la vue (calculé en vue Jeu, lu en Bilan global).
+function goalRevenue(row) {
+  if (currentView === 'overall') {
+    const v = num(row, 'Net Revenue CHF');
+    return v === null ? null : { value: v, estimate: false };
+  }
+  return netRevenue(row);
+}
+
+// Rythme de revenu net (CHF / heure) sur les dernières PACE_WINDOW_HOURS,
+// ou null si l'historique est trop court pour être parlant.
+function revenuePace(rows) {
+  const points = rows
+    .map(r => ({ date: parseTimestamp(r.Timestamp), net: goalRevenue(r) }))
+    .filter(p => p.date && p.net);
+  if (points.length < 2) return null;
+
+  const last = points[points.length - 1];
+  const windowStart = last.date.getTime() - PACE_WINDOW_HOURS * 3600 * 1000;
+  // Point de référence : le dernier relevé avant le début de la fenêtre,
+  // ou à défaut le tout premier relevé.
+  let ref = points[0];
+  for (const p of points) {
+    if (p.date.getTime() <= windowStart) ref = p; else break;
+  }
+  const hours = (last.date.getTime() - ref.date.getTime()) / 3600000;
+  if (hours < 3) return null;
+  return (last.net.value - ref.net.value) / hours;
+}
+
+function formatDuration(hours) {
+  if (hours < 1) return "moins d'une heure";
+  if (hours < 48) return `${Math.round(hours)} h`;
+  return `${Math.round(hours / 24)} jours`;
+}
+
+function renderGoal(rows) {
+  const latest = rows.length ? rows[rows.length - 1] : null;
+  const net = goalRevenue(latest);
+  const goal = currentGoal;
+  setPanelVisible('panel-goal', goal !== null && net !== null);
+  if (goal === null || net === null) return;
+
+  const ratio = net.value / goal;
+  const pct = Math.max(0, ratio * 100);
+  const reached = ratio >= 1;
+  const remaining = goal - net.value;
+
+  document.getElementById('goal-pct').textContent = `${pct.toFixed(pct < 10 ? 1 : 0)} %`;
+  document.getElementById('goal-pct').classList.toggle('reached', reached);
+
+  const fill = document.getElementById('goal-fill');
+  fill.style.width = `${Math.min(100, pct)}%`;
+  fill.classList.toggle('reached', reached);
+  document.getElementById('goal-track').setAttribute('aria-valuenow', String(Math.round(pct)));
+
+  document.getElementById('goal-current').textContent = fmtChf(net.value);
+  document.getElementById('goal-target').textContent = fmtChf(goal);
+  document.getElementById('goal-estimate').style.display = net.estimate ? '' : 'none';
+
+  const rem = document.getElementById('goal-remaining');
+  rem.classList.toggle('reached', reached);
+  rem.textContent = reached
+    ? `Objectif atteint${remaining < 0 ? ` (+${fmtChf(-remaining)})` : ''}`
+    : `Reste ${fmtChf(remaining)}`;
+
+  // Projection au rythme récent, seulement tant que l'objectif n'est pas atteint.
+  const paceEl = document.getElementById('goal-pace');
+  const pace = reached ? null : revenuePace(rows);
+  if (pace === null) {
+    paceEl.style.display = 'none';
+  } else if (pace <= 0) {
+    paceEl.textContent = `Aucune progression du revenu net sur les dernières ${PACE_WINDOW_HOURS} h.`;
+    paceEl.style.display = '';
+  } else {
+    paceEl.textContent = `Au rythme des dernières ${PACE_WINDOW_HOURS} h (${fmtChf(pace * 24)} / jour), `
+      + `objectif atteint dans ≈ ${formatDuration(remaining / pace)}.`;
+    paceEl.style.display = '';
+  }
+}
+
 // ---- Graphique d'évolution ----
 
 function availableMetrics(rows) {
@@ -730,23 +836,38 @@ function renderEvolution(rows) {
   const ctx = document.getElementById('evolution-chart').getContext('2d');
   if (evolutionChart) evolutionChart.destroy();
 
+  const datasets = [{
+    label: metric.label,
+    data,
+    borderColor: COLORS.accent,
+    backgroundColor: 'rgba(242, 169, 60, 0.12)',
+    fill: true,
+    tension: 0.25,
+    spanGaps: true,
+    pointRadius: 0,
+    pointHoverRadius: 4,
+    borderWidth: 2
+  }];
+
+  // Ligne d'objectif horizontale, sur la courbe de revenu net uniquement.
+  // L'axe Y est étendu jusqu'à l'objectif pour que l'écart reste visible.
+  const showGoal = currentGoal !== null && metric.col === cfg.goalMetric;
+  if (showGoal) {
+    datasets.push({
+      label: 'Objectif',
+      data: rows.map(() => currentGoal),
+      borderColor: COLORS.positive,
+      borderDash: [6, 5],
+      borderWidth: 1.5,
+      fill: false,
+      pointRadius: 0,
+      pointHoverRadius: 0
+    });
+  }
+
   evolutionChart = new Chart(ctx, {
     type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        label: metric.label,
-        data,
-        borderColor: COLORS.accent,
-        backgroundColor: 'rgba(242, 169, 60, 0.12)',
-        fill: true,
-        tension: 0.25,
-        spanGaps: true,
-        pointRadius: 0,
-        pointHoverRadius: 4,
-        borderWidth: 2
-      }]
-    },
+    data: { labels, datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -754,7 +875,7 @@ function renderEvolution(rows) {
       plugins: {
         legend: { display: false },
         tooltip: {
-          callbacks: { label: item => `${metric.label} : ${metric.fmt(item.parsed.y)}` }
+          callbacks: { label: item => `${item.dataset.label} : ${metric.fmt(item.parsed.y)}` }
         }
       },
       scales: {
@@ -763,6 +884,7 @@ function renderEvolution(rows) {
           grid: { color: '#2a2f3a' }
         },
         y: {
+          suggestedMax: showGoal ? currentGoal * 1.05 : undefined,
           ticks: { color: '#868c99', font: { family: 'Inter', size: 11 }, callback: v => fmtNum(v) },
           grid: { color: '#2a2f3a' }
         }
