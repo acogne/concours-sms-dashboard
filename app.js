@@ -299,7 +299,9 @@ function setupFullscreenToggle() {
 // ---- Récupération des données via l'API Google Sheets ----
 
 function sheetApiUrl(sheetId, sheetTab) {
-  const range = encodeURIComponent(`${sheetTab}!A:AZ`);
+  // Onglet entier (pas de limite de colonnes) : les colonnes ajoutées à
+  // droite, comme "Date de fin" en BA, sont lues sans toucher au code.
+  const range = encodeURIComponent(`'${sheetTab.replace(/'/g, "''")}'`);
   return `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}`;
 }
 
