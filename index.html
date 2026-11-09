@@ -347,7 +347,31 @@
     color: var(--accent);
     font-variant-numeric: tabular-nums;
   }
-  .goal-pct.reached { color: var(--positive); }
+  /* Couleur selon le verdict : ok = vert, watch = orange, late = rouge,
+     none (pas de date de fin / pas assez d'historique) = orange neutre. */
+  .goal-pct[data-status="ok"], .goal-remaining[data-status="ok"] { color: var(--positive); }
+  .goal-pct[data-status="late"] { color: var(--negative); }
+  .goal-head-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .goal-status {
+    padding: 3px 8px;
+    border: 1px solid currentColor;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--accent);
+  }
+  .goal-status[data-status="ok"] { color: var(--positive); }
+  .goal-status[data-status="late"] { color: var(--negative); }
+  .goal-deadline {
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: var(--text);
+  }
   .goal-track {
     position: relative;
     height: 16px;
@@ -356,13 +380,30 @@
     overflow: hidden;
   }
   .goal-fill {
+    position: relative;
     height: 100%;
     width: 0;
     background: var(--accent);
     border-radius: var(--radius);
     transition: width 0.6s ease;
   }
-  .goal-fill.reached { background: var(--positive); }
+  .goal-fill[data-status="ok"] { background: var(--positive); }
+  .goal-fill[data-status="late"] { background: var(--negative); }
+  /* Projection fin de jeu : hachures derrière la barre pleine. */
+  .goal-projection {
+    position: absolute;
+    top: 0; bottom: 0; left: 0;
+    --proj: var(--accent);
+    background: repeating-linear-gradient(-45deg,
+      color-mix(in srgb, var(--proj) 45%, transparent) 0 4px,
+      color-mix(in srgb, var(--proj) 15%, transparent) 4px 8px);
+    border-right: 2px solid var(--proj);
+    border-radius: var(--radius);
+    transition: width 0.6s ease;
+  }
+  .goal-projection[data-status="ok"] { --proj: var(--positive); }
+  .goal-projection[data-status="late"] { --proj: var(--negative); }
+  .goal-tick { z-index: 1; }
   .goal-tick {
     position: absolute;
     top: 0;
@@ -391,14 +432,14 @@
     font-size: 22px;
     color: var(--text);
   }
-  .goal-remaining.reached { color: var(--positive); }
+  .goal-panel .panel-header { flex-wrap: wrap; gap: 8px; }
   .goal-pace {
     margin: 10px 0 0;
     font-size: 13px;
     color: var(--text-muted);
   }
   @media (prefers-reduced-motion: reduce) {
-    .goal-fill { transition: none; }
+    .goal-fill, .goal-projection { transition: none; }
   }
 
   canvas { display: block; max-width: 100%; }
@@ -615,10 +656,15 @@
   <div class="panel goal-panel" id="panel-goal" style="display:none;">
     <div class="panel-header">
       <h2>Objectif de revenu net</h2>
-      <span id="goal-pct" class="goal-pct"></span>
+      <div class="goal-head-right">
+        <span id="goal-status" class="goal-status" style="display:none;"></span>
+        <span id="goal-pct" class="goal-pct"></span>
+      </div>
     </div>
     <div class="panel-body">
+      <p id="goal-deadline" class="goal-deadline" style="display:none;"></p>
       <div class="goal-track" id="goal-track" role="progressbar" aria-label="Progression vers l'objectif" aria-valuemin="0" aria-valuemax="100">
+        <div class="goal-projection" id="goal-projection" style="display:none;"></div>
         <div class="goal-fill" id="goal-fill"></div>
         <span class="goal-tick" style="left:25%"></span>
         <span class="goal-tick" style="left:50%"></span>

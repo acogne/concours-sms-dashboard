@@ -29,8 +29,14 @@ let currentGoal = null;
 
 // Colonne (AZ) contenant l'objectif de revenu net du concours, en CHF.
 const GOAL_COL = 'Objectif CHF';
-// Fenêtre utilisée pour estimer le rythme actuel de revenu.
+// Colonne contenant la date de fin du jeu (premier nom trouvé).
+const END_DATE_COLS = ['Date de fin', 'Date fin', 'Fin du jeu', 'End Date'];
+let currentEndDate = null;
+// Fenêtre utilisée pour estimer le rythme actuel de revenu (24 h = un
+// cycle complet jour/nuit, pour ne pas extrapoler un pic d'antenne).
 const PACE_WINDOW_HOURS = 24;
+// En dessous de 100 % projeté mais au-dessus de ce seuil : "À surveiller".
+const GOAL_WATCH_RATIO = 0.9;
 
 const AUTO_REFRESH_START = { hour: 9, minute: 10 };
 const AUTO_REFRESH_END = { hour: 20, minute: 10 };
@@ -454,6 +460,7 @@ function loadContest(contestId) {
       // L'objectif peut être saisi sur une ligne sans Timestamp (ex. avant
       // le premier envoi de Make.com) : on le cherche donc sur toutes les lignes.
       currentGoal = readGoal(allRows);
+      currentEndDate = readEndDate(allRows);
 
       // Concours pas encore démarré (onglet créé, mais aucune ligne de
       // données envoyée par Make.com) : renderDashboard() affiche alors
@@ -736,10 +743,60 @@ function revenuePace(rows) {
   return (last.net.value - ref.net.value) / hours;
 }
 
+// Date de fin du jeu, lue comme une cellule formatée du Sheet :
+// "30.11.2026", "30/11/2026", "30.11.26", "2026-11-30", avec heure
+// optionnelle ("30.11.2026 18:00"). Sans heure, le jeu finit à 23:59.
+function parseEndDate(raw) {
+  if (raw === undefined || raw === null) return null;
+  const s = String(raw).trim();
+  let y, mo, d, hh, mm;
+  let m = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4}|\d{2})(?:[\sT,à]+(\d{1,2})[:h](\d{2}))?/);
+  if (m) {
+    [d, mo, y, hh, mm] = [m[1], m[2], m[3], m[4], m[5]];
+    if (y.length === 2) y = '20' + y;
+  } else {
+    m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[\sT]+(\d{1,2}):(\d{2}))?/);
+    if (!m) return null;
+    [y, mo, d, hh, mm] = [m[1], m[2], m[3], m[4], m[5]];
+  }
+  const hasTime = hh !== undefined;
+  const date = new Date(+y, +mo - 1, +d, hasTime ? +hh : 23, hasTime ? +mm : 59, hasTime ? 0 : 59);
+  // Rejette les dates impossibles (ex. 31.02) que Date corrigerait en silence.
+  if (date.getFullYear() !== +y || date.getMonth() !== +mo - 1 || date.getDate() !== +d) return null;
+  return date;
+}
+
+function readEndDate(rows) {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    for (const col of END_DATE_COLS) {
+      const date = parseEndDate(rows[i][col]);
+      if (date) return date;
+    }
+  }
+  return null;
+}
+
 function formatDuration(hours) {
   if (hours < 1) return "moins d'une heure";
   if (hours < 48) return `${Math.round(hours)} h`;
-  return `${Math.round(hours / 24)} jours`;
+  const total = Math.round(hours);
+  const days = Math.floor(total / 24);
+  const rest = total % 24;
+  return rest > 0 && days < 7 ? `${days} j ${rest} h` : `${Math.round(hours / 24)} jours`;
+}
+
+const fmtPct = p => `${p.toFixed(p > 0 && p < 10 ? 1 : 0)} %`;
+
+// Verdict de l'objectif, à partir de la projection en fin de jeu.
+//  - atteint / terminé : état final ;
+//  - projection ≥ 100 % : en bonne voie ; ≥ GOAL_WATCH_RATIO : à surveiller ; sinon en retard.
+function goalStatus(reached, ended, projectedRatio) {
+  if (reached) return { key: 'ok', label: 'Objectif atteint' };
+  if (ended) return { key: 'late', label: 'Objectif manqué' };
+  if (projectedRatio === null) return null;
+  if (projectedRatio >= 1) return { key: 'ok', label: 'En bonne voie' };
+  if (projectedRatio >= GOAL_WATCH_RATIO) return { key: 'watch', label: 'À surveiller' };
+  return { key: 'late', label: 'En retard' };
 }
 
 function renderGoal(rows) {
@@ -754,37 +811,97 @@ function renderGoal(rows) {
   const reached = ratio >= 1;
   const remaining = goal - net.value;
 
-  document.getElementById('goal-pct').textContent = `${pct.toFixed(pct < 10 ? 1 : 0)} %`;
-  document.getElementById('goal-pct').classList.toggle('reached', reached);
+  // Temporalité : heures restantes entre le dernier relevé et la fin du jeu.
+  const end = currentEndDate;
+  const now = Date.now();
+  const lastDate = parseTimestamp(latest && latest.Timestamp);
+  const ended = end !== null && now >= end.getTime();
+  const hoursLeft = end ? Math.max(0, (end.getTime() - (lastDate || new Date(now)).getTime()) / 3600000) : null;
+
+  const pace = revenuePace(rows);
+  const projected = (end && !ended && pace !== null) ? net.value + Math.max(0, pace) * hoursLeft : null;
+  const projectedRatio = projected === null ? null : projected / goal;
+  const status = goalStatus(reached, ended, projectedRatio);
+  const statusKey = status ? status.key : 'none';
+
+  const pctEl = document.getElementById('goal-pct');
+  pctEl.textContent = fmtPct(pct);
+  pctEl.dataset.status = statusKey;
+
+  const statusEl = document.getElementById('goal-status');
+  statusEl.style.display = status ? '' : 'none';
+  if (status) {
+    statusEl.textContent = status.label;
+    statusEl.dataset.status = status.key;
+  }
 
   const fill = document.getElementById('goal-fill');
   fill.style.width = `${Math.min(100, pct)}%`;
-  fill.classList.toggle('reached', reached);
+  fill.dataset.status = statusKey;
   document.getElementById('goal-track').setAttribute('aria-valuenow', String(Math.round(pct)));
+
+  // Zone hachurée : où l'on devrait arriver à la fin du jeu au rythme actuel.
+  const proj = document.getElementById('goal-projection');
+  if (projected !== null && !reached) {
+    proj.style.width = `${Math.min(100, Math.max(0, projectedRatio * 100))}%`;
+    proj.dataset.status = statusKey;
+    proj.style.display = '';
+  } else {
+    proj.style.display = 'none';
+  }
 
   document.getElementById('goal-current').textContent = fmtChf(net.value);
   document.getElementById('goal-target').textContent = fmtChf(goal);
   document.getElementById('goal-estimate').style.display = net.estimate ? '' : 'none';
 
   const rem = document.getElementById('goal-remaining');
-  rem.classList.toggle('reached', reached);
+  rem.dataset.status = reached ? 'ok' : 'none';
   rem.textContent = reached
     ? `Objectif atteint${remaining < 0 ? ` (+${fmtChf(-remaining)})` : ''}`
     : `Reste ${fmtChf(remaining)}`;
 
-  // Projection au rythme récent, seulement tant que l'objectif n'est pas atteint.
-  const paceEl = document.getElementById('goal-pace');
-  const pace = reached ? null : revenuePace(rows);
-  if (pace === null) {
-    paceEl.style.display = 'none';
-  } else if (pace <= 0) {
-    paceEl.textContent = `Aucune progression du revenu net sur les dernières ${PACE_WINDOW_HOURS} h.`;
-    paceEl.style.display = '';
+  const deadlineEl = document.getElementById('goal-deadline');
+  if (end) {
+    const endStr = end.toLocaleString('fr-CH', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    deadlineEl.textContent = ended
+      ? `Jeu terminé le ${endStr}`
+      : `Fin du jeu : ${endStr} · encore ${formatDuration((end.getTime() - now) / 3600000)}`;
+    deadlineEl.style.display = '';
   } else {
-    paceEl.textContent = `Au rythme des dernières ${PACE_WINDOW_HOURS} h (${fmtChf(pace * 24)} / jour), `
-      + `objectif atteint dans ≈ ${formatDuration(remaining / pace)}.`;
-    paceEl.style.display = '';
+    deadlineEl.style.display = 'none';
   }
+
+  document.getElementById('goal-pace').textContent = goalPaceText({ reached, ended, end, pace, projected, projectedRatio, remaining, hoursLeft });
+  setPanelVisible('goal-pace', document.getElementById('goal-pace').textContent !== '');
+}
+
+function goalPaceText({ reached, ended, end, pace, projected, projectedRatio, remaining, hoursLeft }) {
+  if (reached) return '';
+  if (ended) return `Objectif manqué de ${fmtChf(remaining)}.`;
+  const perDay = v => `${fmtChf(v * 24)} / jour`;
+  const current = pace === null ? null : Math.max(0, pace);
+
+  // Sans date de fin : simple estimation du délai au rythme actuel.
+  if (!end) {
+    if (current === null) return '';
+    if (current === 0) return `Aucune progression du revenu net sur les dernières ${PACE_WINDOW_HOURS} h.`;
+    return `Au rythme des dernières ${PACE_WINDOW_HOURS} h (${perDay(current)}), objectif atteint dans ≈ ${formatDuration(remaining / current)}.`;
+  }
+
+  const required = hoursLeft > 0 ? remaining / hoursLeft : null;
+  const parts = [];
+  if (projected !== null) {
+    parts.push(`Projection en fin de jeu : ≈ ${fmtChf(projected)} (${fmtPct(projectedRatio * 100)} de l'objectif).`);
+  }
+  if (required !== null && projectedRatio !== null && projectedRatio < 1) {
+    const boost = current > 0 ? ` (+${Math.round((required / current - 1) * 100)} %)` : '';
+    parts.push(`Il faut ${perDay(required)} d'ici la fin, contre ${perDay(current)} actuellement${boost}.`);
+  } else if (required !== null && current === null) {
+    parts.push(`Il faut ${perDay(required)} d'ici la fin.`);
+  } else if (required !== null && current !== null) {
+    parts.push(`Rythme actuel : ${perDay(current)}, il suffit de ${perDay(required)}.`);
+  }
+  return parts.join(' ');
 }
 
 // ---- Graphique d'évolution ----
