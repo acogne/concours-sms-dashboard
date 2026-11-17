@@ -724,6 +724,17 @@ function goalRevenue(row) {
   return netRevenue(row);
 }
 
+// Moment où l'objectif a été franchi pour la première fois : le relevé le
+// plus ancien qui l'atteint déjà. Précision limitée à celle des données
+// (relevés horaires), donc pas d'interpolation entre deux lignes.
+function findGoalReachedAt(rows, goal) {
+  for (let i = 0; i < rows.length; i++) {
+    const net = goalRevenue(rows[i]);
+    if (net !== null && net.value >= goal) return parseTimestamp(rows[i].Timestamp);
+  }
+  return null;
+}
+
 // Rythme de revenu net (CHF / heure) sur les dernières PACE_WINDOW_HOURS,
 // ou null si l'historique est trop court pour être parlant.
 function revenuePace(rows) {
@@ -873,19 +884,30 @@ function renderGoal(rows) {
     deadlineEl.style.display = 'none';
   }
 
-  renderGoalEta({ reached, ended, end, pace, remaining, lastDate: lastDate || new Date(now), statusKey });
+  const reachedAt = reached ? findGoalReachedAt(rows, goal) : null;
+  renderGoalEta({ reached, ended, end, pace, remaining, lastDate: lastDate || new Date(now), statusKey, reachedAt });
 
   document.getElementById('goal-pace').textContent = goalPaceText({ reached, ended, end, pace, projected, projectedRatio, remaining, hoursLeft });
   setPanelVisible('goal-pace', document.getElementById('goal-pace').textContent !== '');
 }
 
-// Date estimée d'atteinte de l'objectif au rythme des dernières 24 h,
-// arrondie à l'heure (plus précis serait trompeur).
+// Si l'objectif est déjà atteint : date/heure réelle à laquelle il l'a été
+// (voir findGoalReachedAt). Sinon, date estimée d'atteinte au rythme des
+// dernières 24 h, arrondie à l'heure (plus précis serait trompeur).
 const ETA_MAX_DAYS = 365;
-function renderGoalEta({ reached, ended, end, pace, remaining, lastDate, statusKey }) {
+function renderGoalEta({ reached, ended, end, pace, remaining, lastDate, statusKey, reachedAt }) {
   const etaEl = document.getElementById('goal-eta');
   const hide = () => { etaEl.style.display = 'none'; };
-  if (reached || ended || pace === null) return hide();
+
+  if (reached) {
+    if (!reachedAt) return hide();
+    const datePart = reachedAt.toLocaleDateString('fr-CH', { weekday: 'short', day: '2-digit', month: '2-digit' });
+    etaEl.textContent = `Objectif atteint le ${datePart} vers ${reachedAt.getHours()}h`;
+    etaEl.dataset.status = statusKey;
+    etaEl.style.display = '';
+    return;
+  }
+  if (ended || pace === null) return hide();
 
   if (pace <= 0) {
     etaEl.textContent = 'Date d’atteinte estimée : impossible à estimer, aucune progression sur les dernières 24 h';
