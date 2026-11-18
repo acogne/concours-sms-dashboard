@@ -51,7 +51,11 @@ const fmtChf = n => CHF_FMT.format(n);
 // Le bouton "Stops" n'apparaît que si la dernière valeur est > 0.
 // `get` (optionnel) calcule la valeur d'une ligne ; sinon on lit la colonne `col`.
 const NET_REVENUE_KEY = 'revenu-net-calcule';
-// `goalMetric` : métrique sur laquelle la ligne d'objectif est tracée.
+// Onglet "Objectif" : pas une vraie colonne, juste le revenu net rejoué
+// contre la diagonale de rythme à tenir (voir renderEvolution).
+const GOAL_PACE_KEY = 'objectif-pacing';
+const GOAL_TAB = { col: GOAL_PACE_KEY, label: 'Objectif', seriesLabel: 'Revenu net', fmt: fmtChf, get: netRevenueValue, onlyIfGoal: true };
+// `goalMetric` : métrique sur laquelle la ligne d'objectif plafond est tracée.
 const GAME_METRICS = {
   default: NET_REVENUE_KEY,
   goalMetric: NET_REVENUE_KEY,
@@ -59,7 +63,7 @@ const GAME_METRICS = {
     { col: 'Charged Entries', label: 'Participations', fmt: fmtNum },
     { col: 'Charged Unique Users', label: 'Participants', fmt: fmtNum },
     { col: NET_REVENUE_KEY, label: 'Revenu net', fmt: fmtChf, get: netRevenueValue },
-    { col: 'Outpayment CHF', label: 'Revenu brut', fmt: fmtChf },
+    GOAL_TAB,
     { col: 'Stops Cumulés', label: 'Stops', fmt: fmtNum, onlyIfPositive: true }
   ]
 };
@@ -68,8 +72,8 @@ const OVERALL_METRICS = {
   goalMetric: 'Net Revenue CHF',
   list: [
     { col: 'Charged Entries', label: 'Participations', fmt: fmtNum },
-    { col: 'Outpayment CHF', label: 'Revenu brut', fmt: fmtChf },
-    { col: 'Net Revenue CHF', label: 'Revenu net', fmt: fmtChf }
+    { col: 'Net Revenue CHF', label: 'Revenu net', fmt: fmtChf },
+    GOAL_TAB
   ]
 };
 
@@ -969,6 +973,7 @@ function goalPaceText({ reached, ended, end, pace, projected, projectedRatio, re
 function availableMetrics(rows) {
   const latest = rows[rows.length - 1];
   return currentMetricsConfig().list.filter(m => {
+    if (m.onlyIfGoal && currentGoal === null) return false;
     if (m.onlyIfPositive) {
       const v = metricValue(m, latest);
       return v !== null && v > 0;
@@ -1014,7 +1019,7 @@ function renderEvolution(rows) {
   if (evolutionChart) evolutionChart.destroy();
 
   const datasets = [{
-    label: metric.label,
+    label: metric.seriesLabel || metric.label,
     data,
     borderColor: COLORS.accent,
     backgroundColor: 'rgba(242, 169, 60, 0.12)',
@@ -1026,34 +1031,46 @@ function renderEvolution(rows) {
     borderWidth: 2
   }];
 
-  // Ligne d'objectif, sur la courbe de revenu net uniquement. Avec une date
-  // de fin connue, c'est une diagonale de rythme (0 au premier relevé →
-  // objectif à la date de fin) : la courbe de revenu passe au-dessus ou en
-  // dessous selon qu'on est en avance ou en retard sur le rythme à tenir.
-  // Sans date de fin, on retombe sur un simple plafond horizontal.
-  // L'axe Y est étendu jusqu'à l'objectif pour que l'écart reste visible.
-  const showGoal = currentGoal !== null && metric.col === cfg.goalMetric;
-  if (showGoal) {
-    const startDate = parseTimestamp(rows[0] && rows[0].Timestamp);
-    const canPace = currentEndDate && startDate && currentEndDate.getTime() > startDate.getTime();
-    const startTime = canPace ? startDate.getTime() : null;
-    const totalTime = canPace ? currentEndDate.getTime() - startTime : null;
-
+  // Onglet "Revenu net" : simple plafond pointillé au niveau de l'objectif.
+  const showFlatGoal = currentGoal !== null && metric.col === cfg.goalMetric;
+  if (showFlatGoal) {
     datasets.push({
-      label: canPace ? 'Rythme cible' : 'Objectif',
-      data: rows.map(r => {
-        if (!canPace) return currentGoal;
-        const d = parseTimestamp(r.Timestamp);
-        return d ? currentGoal * (d.getTime() - startTime) / totalTime : null;
-      }),
+      label: 'Objectif',
+      data: rows.map(() => currentGoal),
       borderColor: COLORS.positive,
-      borderDash: canPace ? undefined : [6, 5],
+      borderDash: [6, 5],
       borderWidth: 1.5,
       fill: false,
-      spanGaps: true,
       pointRadius: 0,
       pointHoverRadius: 0
     });
+  }
+
+  // Onglet "Objectif" : diagonale du rythme à tenir (objectif / nombre de
+  // jours de l'opération), comparée au revenu net réel. Pas de suggestedMax
+  // sur l'objectif final ici : l'échelle reste celle du jour, sinon la
+  // courbe réelle est écrasée en bas du graphique tout le long du jeu.
+  const isGoalTab = metric.col === GOAL_PACE_KEY;
+  if (isGoalTab && currentGoal !== null) {
+    const startDate = parseTimestamp(rows[0] && rows[0].Timestamp);
+    const canPace = currentEndDate && startDate && currentEndDate.getTime() > startDate.getTime();
+    if (canPace) {
+      const startTime = startDate.getTime();
+      const totalTime = currentEndDate.getTime() - startTime;
+      datasets.push({
+        label: 'Rythme cible',
+        data: rows.map(r => {
+          const d = parseTimestamp(r.Timestamp);
+          return d ? currentGoal * (d.getTime() - startTime) / totalTime : null;
+        }),
+        borderColor: COLORS.positive,
+        borderWidth: 1.5,
+        fill: false,
+        spanGaps: true,
+        pointRadius: 0,
+        pointHoverRadius: 0
+      });
+    }
   }
 
   evolutionChart = new Chart(ctx, {
@@ -1075,7 +1092,7 @@ function renderEvolution(rows) {
           grid: { color: '#2a2f3a' }
         },
         y: {
-          suggestedMax: showGoal ? currentGoal * 1.05 : undefined,
+          suggestedMax: showFlatGoal ? currentGoal * 1.05 : undefined,
           ticks: { color: '#868c99', font: { family: 'Inter', size: 11 }, callback: v => fmtNum(v) },
           grid: { color: '#2a2f3a' }
         }
