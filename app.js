@@ -1026,17 +1026,31 @@ function renderEvolution(rows) {
     borderWidth: 2
   }];
 
-  // Ligne d'objectif horizontale, sur la courbe de revenu net uniquement.
+  // Ligne d'objectif, sur la courbe de revenu net uniquement. Avec une date
+  // de fin connue, c'est une diagonale de rythme (0 au premier relevé →
+  // objectif à la date de fin) : la courbe de revenu passe au-dessus ou en
+  // dessous selon qu'on est en avance ou en retard sur le rythme à tenir.
+  // Sans date de fin, on retombe sur un simple plafond horizontal.
   // L'axe Y est étendu jusqu'à l'objectif pour que l'écart reste visible.
   const showGoal = currentGoal !== null && metric.col === cfg.goalMetric;
   if (showGoal) {
+    const startDate = parseTimestamp(rows[0] && rows[0].Timestamp);
+    const canPace = currentEndDate && startDate && currentEndDate.getTime() > startDate.getTime();
+    const startTime = canPace ? startDate.getTime() : null;
+    const totalTime = canPace ? currentEndDate.getTime() - startTime : null;
+
     datasets.push({
-      label: 'Objectif',
-      data: rows.map(() => currentGoal),
+      label: canPace ? 'Rythme cible' : 'Objectif',
+      data: rows.map(r => {
+        if (!canPace) return currentGoal;
+        const d = parseTimestamp(r.Timestamp);
+        return d ? currentGoal * (d.getTime() - startTime) / totalTime : null;
+      }),
       borderColor: COLORS.positive,
-      borderDash: [6, 5],
+      borderDash: canPace ? undefined : [6, 5],
       borderWidth: 1.5,
       fill: false,
+      spanGaps: true,
       pointRadius: 0,
       pointHoverRadius: 0
     });
