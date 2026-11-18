@@ -13,6 +13,7 @@ let evolutionChart = null;
 let loyaltyChart = null;
 let weekdayChart = null;
 let hourlyChart = null;
+let goalTrendChart = null;
 let currentRows = [];
 let currentMetric = null;
 let lastRenderedKey = null;
@@ -290,7 +291,7 @@ function setupFullscreenToggle() {
     // d'entrée/sortie du plein écran n'est pas terminée au moment où cet
     // événement se déclenche, donc on redimensionne aussi une fois qu'elle
     // a eu le temps de se terminer.
-    const resizeCharts = () => [evolutionChart, loyaltyChart, weekdayChart, hourlyChart].forEach(chart => chart && chart.resize());
+    const resizeCharts = () => [evolutionChart, loyaltyChart, weekdayChart, hourlyChart, goalTrendChart].forEach(chart => chart && chart.resize());
     resizeCharts();
     setTimeout(resizeCharts, 300);
   });
@@ -735,6 +736,73 @@ function findGoalReachedAt(rows, goal) {
   return null;
 }
 
+// Historique du ratio projeté (ce qui pilote la couleur du statut) : pour
+// chaque relevé, "si on s'arrêtait au rythme des 24 h précédentes, où
+// serait-on en fin de jeu ?". Donne une tendance plutôt qu'un instantané.
+// Sans date de fin connue, la projection n'a pas de sens : on retombe sur
+// la progression réelle (net / objectif).
+function goalTrendSeries(rows, goal) {
+  const points = [];
+  for (let i = 0; i < rows.length; i++) {
+    const net = goalRevenue(rows[i]);
+    const date = parseTimestamp(rows[i].Timestamp);
+    if (!net || !date) continue;
+
+    if (!currentEndDate) {
+      points.push({ date, ratio: net.value / goal });
+      continue;
+    }
+    const pace = revenuePace(rows.slice(0, i + 1));
+    if (pace === null) continue;
+    const hoursLeft = Math.max(0, (currentEndDate.getTime() - date.getTime()) / 3600000);
+    const projected = net.value + Math.max(0, pace) * hoursLeft;
+    points.push({ date, ratio: projected / goal });
+  }
+  return points;
+}
+
+const GOAL_TREND_MIN_POINTS = 3;
+function renderGoalTrend(rows, goal) {
+  const container = document.getElementById('goal-trend');
+  const points = goalTrendSeries(rows, goal);
+
+  if (points.length < GOAL_TREND_MIN_POINTS) {
+    container.style.display = 'none';
+    return;
+  }
+  container.style.display = '';
+
+  const lastRatio = points[points.length - 1].ratio;
+  const lineColor = lastRatio >= 1 ? COLORS.positive
+    : lastRatio >= GOAL_WATCH_RATIO ? COLORS.accent
+    : COLORS.negative;
+
+  const ctx = document.getElementById('goal-trend-chart').getContext('2d');
+  if (goalTrendChart) goalTrendChart.destroy();
+
+  goalTrendChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: points.map(p => p.date),
+      datasets: [{
+        data: points.map(p => p.ratio * 100),
+        borderColor: lineColor,
+        backgroundColor: 'transparent',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.3
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: { x: { display: false }, y: { display: false } }
+    }
+  });
+}
+
 // Rythme de revenu net (CHF / heure) sur les dernières PACE_WINDOW_HOURS,
 // ou null si l'historique est trop court pour être parlant.
 function revenuePace(rows) {
@@ -889,6 +957,8 @@ function renderGoal(rows) {
 
   document.getElementById('goal-pace').textContent = goalPaceText({ reached, ended, end, pace, projected, projectedRatio, remaining, hoursLeft });
   setPanelVisible('goal-pace', document.getElementById('goal-pace').textContent !== '');
+
+  renderGoalTrend(rows, goal);
 }
 
 // Si l'objectif est déjà atteint : date/heure réelle à laquelle il l'a été

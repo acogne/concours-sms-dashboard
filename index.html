@@ -442,6 +442,10 @@
     color: var(--text);
   }
   .goal-panel .panel-header { flex-wrap: wrap; gap: 8px; }
+  .goal-trend {
+    margin-top: 10px;
+    height: 40px;
+  }
   .goal-pace {
     margin: 10px 0 0;
     font-size: 13px;
@@ -682,6 +686,9 @@
       <div class="goal-figures">
         <span><strong class="display" id="goal-current"></strong> sur <span id="goal-target"></span><em id="goal-estimate" class="goal-estimate" style="display:none;"> · estimation</em></span>
         <span id="goal-remaining" class="goal-remaining display"></span>
+      </div>
+      <div class="goal-trend" id="goal-trend" style="display:none;">
+        <canvas id="goal-trend-chart" height="40"></canvas>
       </div>
       <p id="goal-eta" class="goal-eta" style="display:none;"></p>
       <p id="goal-pace" class="goal-pace" style="display:none;"></p>
