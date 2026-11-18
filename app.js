@@ -1055,14 +1055,22 @@ function renderEvolution(rows) {
     const startDate = parseTimestamp(rows[0] && rows[0].Timestamp);
     const canPace = currentEndDate && startDate && currentEndDate.getTime() > startDate.getTime();
     if (canPace) {
+      // L'axe X est un axe par catégorie (un cran par relevé), pas un axe
+      // temporel : les relevés ne sont pas espacés régulièrement dans le
+      // temps, donc calculer une valeur par relevé donnerait une ligne en
+      // paliers. On ne pose que les deux extrémités (0 au premier relevé,
+      // cible du jour au dernier) et on laisse Chart.js tracer le segment
+      // droit entre les deux via spanGaps.
       const startTime = startDate.getTime();
       const totalTime = currentEndDate.getTime() - startTime;
+      const lastDate = parseTimestamp(rows[rows.length - 1] && rows[rows.length - 1].Timestamp);
+      const data = rows.map(() => null);
+      data[0] = 0;
+      if (lastDate) data[data.length - 1] = currentGoal * (lastDate.getTime() - startTime) / totalTime;
+
       datasets.push({
         label: 'Rythme cible',
-        data: rows.map(r => {
-          const d = parseTimestamp(r.Timestamp);
-          return d ? currentGoal * (d.getTime() - startTime) / totalTime : null;
-        }),
+        data,
         borderColor: COLORS.positive,
         borderWidth: 1.5,
         fill: false,
